@@ -5,7 +5,7 @@ title: "Mutation Burden vs Age Testicular normal samples Signature Analyses"
 #Load Libraries
 ```{r}
 library('biomaRt')
-library(patchwork)
+library("patchwork")
 library(rtracklayer)
 library(stringr)
 library(stats)
@@ -28,8 +28,8 @@ library(BSgenome)
 library("TCGAbiolinks")
 library(org.Hs.eg.db)
 library(Organism.dplyr)
-ref_genome <- "BSgenome.Hsapiens.UCSC.hg19"
 library("TxDb.Hsapiens.UCSC.hg19.knownGene")
+ref_genome <- "BSgenome.Hsapiens.UCSC.hg19"
 library(ref_genome, character.only = TRUE)
 options(scipen = 999)
 theme_set(theme_cowplot())
@@ -37,14 +37,16 @@ theme_set(theme_cowplot())
 
 ```
 
-# Full dataset
+# Load VCF files and generate genomic ranges and other annotations
 ```{r}
+#Load VCF files
 vcf_files <- list.files("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Inputs/All", pattern = "\\_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf$", full.names = TRUE)
 
+#Get sample name list
 sample_names <- list.files("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Inputs/All", pattern = "\\_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf$")
-
 sample_names <- str_remove(sample_names, "_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf")
 
+#Get genomic regions covered in each sample. 
 surveyed_files <- list.files("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions", pattern = "\\.callable.bed$", full.names = TRUE)
 surveyed_list <- vector(mode = "list")
 
@@ -57,6 +59,8 @@ for(i in sample_names){
 
 length(vcf_files[234])
 head(surveyed_list)
+
+# Create other annotation lists for each file. 
 PID <- substr(sample_names,0,7)
 PIDTissue <- substr(sample_names,0,8)
 vcfs <- read_vcfs_as_granges(vcf_files, sample_names, ref_genome, check_alleles=T)
@@ -127,14 +131,16 @@ png("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched
 plot_spectrum(type_occurrences, by = PIDTissue, CT = TRUE, legend = TRUE)
 dev.off()
 
+## We decided to merge the "Normal" and "Tumour Background nomral" samples into one set. 
 Tissue_Normal_TBN_merged  <- Tissue
 revalue(Tissue_Normal_TBN_merged, c("Tumour_background-Normal" = "Normal")) -> Tissue_Normal_TBN_merged
 revalue(Tissue_Normal_TBN_merged, c("Normal" = "Testes")) -> Tissue_Normal_TBN_merged
 revalue(Tissue_Normal_TBN_merged, c("Not_normal(benign)" = "Testes(benign)")) -> Tissue_Normal_TBN_merged
 
-Tissue_Normal_TBN_merged[which(Tissue_Normal_TBN_merged == "Trio_DNMs")]
-
+#Plotting out samples separately to get the error bars.
 p1 <- plot_spectrum(type_occurrences[1:233,], by = Tissue_Normal_TBN_merged[1:233], CT = TRUE, legend = FALSE)
+
+#Plotting Just the TRIO data from RR, since it is a single file, it can not be separated into per sample. ß
 p2 <- plot_spectrum(type_occurrences[234,], by = Tissue_Normal_TBN_merged[234], CT = TRUE, legend = TRUE)
 p <- p1+p2+plot_layout(ncol=2,widths=c(3,1))
 png("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/MutPat-ByTissueNormal_TBN_merged-6mutTypes_withTrioData.png", res=300, units="in", width = 12, height=5)
@@ -145,17 +151,23 @@ dev.off()
 
 # 96 Trinucleotide mutational spectrum plots
 ```{r}
+
+## Setting the colors for each mutation type. 
 mutational_catalog_colors <- c("#2EBAED", "#000000", "#DE1C14","#D4D2D2", "#ADCC54", "#F0D0CE")
 names(mutational_catalog_colors) <- c("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
 
+
+## Generating the 96 trinucleotide matrix
 mut_mat <- mut_matrix(vcf_list = vcfs, ref_genome = ref_genome)
 colnames(mut_mat)
 
+
+## Saving the data for future use
 save(vcfs,PID,PIDTissue, Tissue,Tissue_Normal_TBN_merged,sample_names,mutational_catalog_colors, surveyed_list, file = "/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/mutational_pattern_allsamples.rds")
 load("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/mutational_pattern_allsamples.rds")
 
 
-# Per sample
+# Generating 96 trinucleotide plots Per sample
 for(i in colnames(mut_mat)){
   mut_mat_per_Sample <- as.data.frame(mut_mat[,i])
   colnames(mut_mat_per_Sample) <- i
@@ -169,7 +181,7 @@ for(i in colnames(mut_mat)){
 }
 
 
-# Per Tissue ("Testes", "Colon", "Testes(Benign)", Trio_DNMs)  with 95% confidence intervals
+# Generating 96 trinucleotide plots  Per Tissue ("Testes", "Colon", "Testes(Benign)", Trio_DNMs)  with 95% confidence intervals
 for(i in unique(Tissue_Normal_TBN_merged)){
   rownumbers <- which(Tissue_Normal_TBN_merged == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
@@ -193,7 +205,7 @@ for(i in unique(Tissue_Normal_TBN_merged)){
   dev.off()
 }
 
-# Per PID  with 95% confidence intervals
+# Generating 96 trinucleotide plots  Per PID  with 95% confidence intervals
 for(i in unique(PID)){
   rownumbers <- which(PID == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
@@ -218,7 +230,7 @@ for(i in unique(PID)){
   dev.off()
 }
 
-# Per PID sparated by tissue with 95% confidence intervals
+# Generating 96 trinucleotide plots Per PID sparated by tissue with 95% confidence intervals
 for(i in unique(PIDTissue)){
   rownumbers <- which(PIDTissue == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
@@ -243,7 +255,7 @@ for(i in unique(PIDTissue)){
   dev.off()
 }
 
-# Per PID with STDDEV
+# Generating 96 trinucleotide plots Per PID with STDDEV
 for(i in unique(PID)){
   rownumbers <- which(PID == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
@@ -268,7 +280,7 @@ for(i in unique(PID)){
   dev.off()
 }
 
-# Per PID sparated by tissue with STDDEV
+# Generating 96 trinucleotide plots Per PID sparated by tissue with STDDEV
 for(i in unique(PIDTissue)){
   rownumbers <- which(PIDTissue == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
@@ -298,8 +310,10 @@ for(i in unique(PIDTissue)){
 
 ##Transcriptional strand bias analysis
 ```{r}
-ymax=max()
+## Getting Genes locations from HG19 as genomicranges
 genes_hg19 <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene)
+
+##Generating the trinucleotide 
 mut_mat_s <- mut_matrix_stranded(vcfs, ref_genome, genes_hg19)
 
 #By Tissue Type ("Testes", "Colon", "Testes(Benign)")
@@ -361,25 +375,6 @@ dev.off()
 
 # Looking at Genic and Non Genic regions
 ```{r}
-# reduce
-
-src <- src_organism("TxDb.Hsapiens.UCSC.hg19.knownGene")
-
-txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene 
-head(seqlevels(txdb))
-columns(txdb)
-txdb$GENEID
-coding <- cds(txdb)
-coding_df <- data.frame(Chr=seqnames(coding), Start=start(coding)-1, End=end(coding), Strand=strand(coding))
-write.table(coding_df,file="/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions/Homo_sapiens.GRCh37.75_coding.bed", sep="\t", row.names = FALSE, quote = FALSE)
-
-exons_hg19 <- exons(txdb)
-exons_hg19_df <- data.frame(Chr=seqnames(exons_hg19), Start=start(exons_hg19)-1, End=end(exons_hg19), Strand=strand(exons_hg19))
-write.table(exons_hg19_df,file="/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions/Homo_sapiens.GRCh37.75_exons.bed", sep="\t", row.names = FALSE, quote = FALSE)
-
-#cdsBy(txdb, by = c("tx", "gene"))
-
-
 # Get genes and non-genic genomic regions
 hg19_Granges = GRanges(seqnames = seqnames(get(ref_genome))[1:24], IRanges(start=rep(1,24), end=seqlengths(get(ref_genome))[1:24]))
 hg19_nongenic = setdiff(hg19_Granges, genes_hg19, ignore.strand=T)
@@ -398,6 +393,30 @@ distr_test <- enrichment_depletion_test(distr, by=PIDTissue)
 png("/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/Genic_vs_NonGenic-ByPIDTissue.png", res=300, units="in", width = 8, height=8)
 plot_enrichment_depletion(distr_test)
 dev.off()
+
+
+```
+
+
+# Coding vs NonCoding / Exonic vs nonExonic ?
+```{r}
+src <- src_organism("TxDb.Hsapiens.UCSC.hg19.knownGene")
+
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene 
+head(seqlevels(txdb))
+columns(txdb)
+txdb$GENEID
+coding <- cds(txdb)
+coding_df <- data.frame(Chr=seqnames(coding), Start=start(coding)-1, End=end(coding), Strand=strand(coding))
+write.table(coding_df,file="/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions/Homo_sapiens.GRCh37.75_coding.bed", sep="\t", row.names = FALSE, quote = FALSE)
+
+exons_hg19 <- exons(txdb)
+exons_hg19_df <- data.frame(Chr=seqnames(exons_hg19), Start=start(exons_hg19)-1, End=end(exons_hg19), Strand=strand(exons_hg19))
+write.table(exons_hg19_df,file="/Users/rs30/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions/Homo_sapiens.GRCh37.75_exons.bed", sep="\t", row.names = FALSE, quote = FALSE)
+
+#cdsBy(txdb, by = c("tx", "gene"))
+
+
 
 
 ```
