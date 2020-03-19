@@ -109,19 +109,18 @@ length(Tissue)
 length(sample_names)
 unique(sort_order)
 
-PID <- factor(PID, levels=sort_order)
+PID <- as.character(factor(PID, levels=sort_order))
 
 sort_order_PIDTissue <- unique(sample_info$Sample)
 sort_order_PIDTissue <- factor(sort_order_PIDTissue, levels=sort_order_PIDTissue)
 
-PIDTissue <- factor(PIDTissue, levels=sort_order_PIDTissue)
+PIDTissue <- as.character(factor(PIDTissue, levels=sort_order_PIDTissue))
 
 #Merging tumour background normal and normal into single set
-Tissue_Normal_TBN_merged  <- Tissue
-revalue(Tissue_Normal_TBN_merged, c("Tumour_background-Normal" = "Normal")) -> Tissue_Normal_TBN_merged
-revalue(Tissue_Normal_TBN_merged, c("Normal" = "Testes")) -> Tissue_Normal_TBN_merged
-revalue(Tissue_Normal_TBN_merged, c("Not_normal(benign)" = "Testes(benign)")) -> Tissue_Normal_TBN_merged
-
+Tissue_Normal_TBN_merged  <- as.character(Tissue) %>% 
+  str_replace("Tumour_background-Normal","Normal") %>% 
+  str_replace("Normal","Testes") %>% 
+  str_replace("Not_normal(benign)","Testes(benign)")
 ```
 
 # Trio dataset
@@ -165,24 +164,14 @@ load("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched
 # 6 Mutation Type plots
 ```{r}
 #Merge trios data with LCM
-type_occurrences <- bind_rows(type_occurrences, trio_type_occurrences)
+merged_type_occurrences <- rbind(type_occurrences, trio_type_occurrences)
 
-png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/MutPat-ByPIDTissue-6mutTypes.png", res=300, units="in", width = 12, height=7)
-plot_spectrum(type_occurrences[1:233,], by = PIDTissue[1:233], CT = TRUE, legend = TRUE)
-dev.off()
+merged_PID <- c(PID, trio_PID)
+merged_PIDTissue <- c(PIDTissue, trio_PIDTissue)
+merged_Tissue <- as.character(c(Tissue_Normal_TBN_merged, trio_Tissue))
 
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/MutPat-ByPIDTissue-6mutTypes_withTrioData.png", res=300, units="in", width = 12, height=7)
-plot_spectrum(type_occurrences, by = PIDTissue, CT = TRUE, legend = TRUE)
-dev.off()
-
-
-Tissue_Normal_TBN_merged[which(Tissue_Normal_TBN_merged == "Trio_DNMs")]
-
-p1 <- plot_spectrum(type_occurrences[1:233,], by = Tissue_Normal_TBN_merged[1:233], CT = TRUE, legend = FALSE)
-p2 <- plot_spectrum(type_occurrences[234,], by = Tissue_Normal_TBN_merged[234], CT = TRUE, legend = TRUE)
-p <- p1+p2+plot_layout(ncol=2,widths=c(3,1))
-png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/MutPat-ByTissueNormal_TBN_merged-6mutTypes_withTrioData.png", res=300, units="in", width = 12, height=5)
-print(p)
+plot_spectrum(merged_type_occurrences, by= merged_Tissue, CT = TRUE, legend = TRUE)
 dev.off()
 
 ```
