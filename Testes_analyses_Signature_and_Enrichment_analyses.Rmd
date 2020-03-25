@@ -4,47 +4,266 @@ title: "Mutation Burden vs Age Testicular normal samples Signature Analyses"
 
 #Load Libraries
 ```{r}
-library('biomaRt')
+library(biomaRt)
+library(Repitools)
+library(Rmisc)
 library(patchwork)
 library(rtracklayer)
 library(stringr)
 library(stats)
 library(devtools)
-library("cowplot")
-library("dplyr")
-library("ggplot2")
-library("ggpubr")
-library("gridExtra")
-library("lme4")
-library("multcomp")
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(gridExtra)
+library(lme4)
+library(multcomp)
 library(MutationalPatterns)
-library("nlme")
-library("plyr")
-library("randomcoloR")
-library("RColorBrewer")
-library("reshape2")
-library("tidyverse")
+library(nlme)
+library(plyr)
+library(randomcoloR)
+library(RColorBrewer)
+library(reshape2)
+library(tidyverse)
 library(BSgenome)
-library("TCGAbiolinks")
+library(TCGAbiolinks)
 library(org.Hs.eg.db)
 library(Organism.dplyr)
 ref_genome <- "BSgenome.Hsapiens.UCSC.hg19"
-library("TxDb.Hsapiens.UCSC.hg19.knownGene")
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(ref_genome, character.only = TRUE)
 options(scipen = 999)
 theme_set(theme_cowplot())
+```
+
+# Condensed analysis
+
+## Condensed datasets
+```{r Datasets}
+#Testes Normal 
+testesVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Testes.vcf.gz", "Testes", ref_genome, check_alleles=T)
+
+#Testes Benign
+testesBenignVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Benign_Testes.vcf.gz", "Testes(Benign)", ref_genome, check_alleles=T)
+
+#Colon Normal
+colonVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Colon.vcf.gz", "Colon", ref_genome, check_alleles=T)
+
+#Trio Sample
+triosVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/Trio_data.vcf.gz", "Trio_data", ref_genome, check_alleles=T)
+
+condensedVCFs <- c(colonVCF, testesVCF, testesBenignVCF,  triosVCF)
+groupedVCFs <- c(colonVCF[[1]], testesVCF[[1]], testesBenignVCF[[1]],  triosVCF[[1]])
+condensedTissues <- c("Colon","Testes", "Testes(Benign)", "Trio_DNMs")
+condensedSource <- tibble(source = c(rep("Colon",length(colonVCF[[1]])), rep("Testes",length(testesVCF[[1]])), rep("Testes(Benign)",length(testesBenignVCF[[1]])), rep("Trio_DNMs",length(triosVCF[[1]]))))
+
+condensed_muts = mutations_from_vcf(condensedVCFs[[1]])
+condensed_types = mut_type(condensedVCFs[[1]])
+condensed_context = mut_context(condensedVCFs[[1]], ref_genome)
+condensed_type_context = type_context(condensedVCFs[[1]], ref_genome)
+condensed_type_occurrences <- mut_type_occurrences(condensedVCFs, ref_genome)
+
+#Surveyed Regions: Here just using full genomic coordinates for testing/simplicity. Extend to detailed surveyed regions later.
+condensed_surveyed <- import("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/Trio_DNMs.callable.bed")
+seqlevelsStyle(condensed_surveyed) <- "UCSC"
+condensed_surveyed_list <- rep(list(condensed_surveyed), 4)
+
+#Corrected pvalue
+p_corrected = 0.05/(length(condensedTissues))
+```
 
 
+## 6 Mutation Type plots
+```{r}
+#Single Nucleotide spectrum
+plot_spectrum(condensed_type_occurrences, by= condensedTissues, CT = TRUE, legend = TRUE)
+```
 
+## Transcriptional strand bias analysis
+```{r}
+genes_hg19 <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene)
+mut_mat_s <- mut_matrix_stranded(condensedVCFs, ref_genome, genes_hg19)
+#By Tissue Type ("Testes", "Colon", "Testes(Benign)")
+strand_counts <- strand_occurrences(mut_mat_s, by=condensedTissues)
+#Poisson test for strand asymmetry significance
+strand_bias <- strand_bias_test(strand_counts) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(p_poisson < p_corrected, "*", ""))
+#Plot the mutation spectrum with strand distinction:
+ps1 <- plot_strand(strand_counts, mode = "relative")
+#effect size (log2(untranscribed/transcribed) of the strand bias
+ps2 <- plot_strand_bias(strand_bias)
+ps1 / ps2
+```
 
+## Replication Strand
+```{r}
+# Method from Harald(TensorSignatures)
+# Replication times
+repTimeGm12878 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq//wgEncodeUwRepliSeqGm12878WaveSignalRep1.bigWig", format="BigWig")
+repTimeK569 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqK562WaveSignalRep1.bigWig", format="BigWig")
+repTimeHela <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHelas3WaveSignalRep1.bigWig", format="BigWig")
+repTimeHuvec <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHuvecWaveSignalRep1.bigWig", format="BigWig")
+repTimeHepg2 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHepg2WaveSignalRep1.bigWig", format="BigWig")
+
+repTime <- granges(repTimeGm12878)
+mcols(repTime) <- DataFrame(mg12878=repTimeGm12878$score, hela=repTimeHela$score, k562=repTimeK569$score, huvec=repTimeHuvec$score, hepg2=repTimeHepg2$score)
+ndiff <- function(x) (c(NA,x[-length(x)]) - c(x[-1],NA))
+t <- sapply(mcols(repTime), ndiff)
+m <- rowMeans(t)
+s <- rowMeans(sqrt((t-m)^2))
+table(abs(m)-2*s > 0)
+
+repStrand <- granges(repTime)
+strand(repStrand)[which(m<0)] <- "+" 
+strand(repStrand)[which(m>0)] <- "-" 
+strand(repStrand)[which(abs(m)-2*s < 0)] <- "*" 
+seqlevels(repStrand) <- sub("chr","", seqlevels(repStrand))
+
+seqlevelsStyle(repStrand) <- "UCSC"
+Leading_strand <- repStrand[strand(repStrand) == "+"]
+Lagging_strand <- repStrand[strand(repStrand) == "-"]
+Unassigned_strand <- repStrand[strand(repStrand) == "*"]
+
+replicationDirection_list <- GRangesList(Leading_strand, Lagging_strand, Unassigned_strand)
+names(replicationDirection_list) <- c("Leading", "Lagging", "Unassigned")
+
+save(replicationDirection_list, file="replicationDirection_list.RData")
+
+load("replicationDirection_list.RData")
+
+repStrand_dist = genomic_distribution(condensedVCFs, condensed_surveyed_list, replicationDirection_list)
+repStrand_depl <- enrichment_depletion_test(repStrand_dist,by=condensedTissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+plot_enrichment_depletion(repStrand_depl)
+```
+
+## Replication Timing
+```{r}
+## Method from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5536223/pdf/emss-73438.pdf
+# regions bed files
+regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions", full.names = T)
+print(regions_files)
+
+regions_files = regions_files[3:5]
+
+# region bed files
+regions_list=list()
+for(i in regions_files){
+  print(i)
+  region <- import(i)
+  ## Import the file using rtracklayer and use the UCSC naming standard
+  seqlevelsStyle(region) <- "UCSC"
+  regions_list[[i]] <- region
+}
+
+#names(regions_list) = c("H3k27ac", "H3K9me3", "Early", "Intermediate", "Late", "Autosomal_exon", "Coding")
+names(regions_list) = c("Early", "Intermediate", "Late")
+
+# Find overlaps between mutations and genomic regions
+repTiming_dist = genomic_distribution(condensedVCFs, condensed_surveyed_list, regions_list)
+
+repTiming_depl = enrichment_depletion_test(repTiming_dist, by = condensedTissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+repTiming_depl$region = factor(repTiming_depl$region, levels = c("Early", "Intermediate", "Late"))
+plot_enrichment_depletion(repTiming_depl)
+
+```
+
+## Expression Model
+```{r glmm, fig.height=6, fig.width=10}
+get_gene_df <- function() {
+  biomart <- read_tsv("/Volumes/GoogleDrive/My Drive/Testes/gene_prot_coords.tsv", col_types = 'ccciiiii') %>% 
+    drop_na(prot) %>% 
+    dplyr::rename(prot_id = prot, gene_id = gene)
+  
+  data("refcds_hg19", package="dndscv")
+  gene_df <- tibble(gene_name = sapply(RefCDS, function(x) x$gene_name),
+                    prot_id = sapply(RefCDS, function(x) x$protein_id)) %>% 
+    left_join(biomart, by = "prot_id") %>% 
+    mutate(length = end - start)
+  gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end), strand = gene_df$strand)
+  seqlevelsStyle(gene_gr) <- "UCSC"
+  gene_df <- gene_df %>% 
+    mutate(gc_content = gcContentCalc(gene_gr, BSgenome.Hsapiens.UCSC.hg19)) %>% 
+    select(gene_name, chr, start, end, strand, length, gc_content)
+  return(gene_df)
+}
+gene_df <- get_gene_df() 
+rm(RefCDS, gr_genes)
+gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end))
+seqlevelsStyle(gene_gr) <- "UCSC"
+
+ovs<- as.data.frame(findOverlaps(groupedVCFs,gene_gr))
+overlapHits <- cbind(condensedSource[ovs$queryHits,],gene_df[ovs$subjectHits,]) %>% 
+  group_by(gene_name, source) %>% 
+  dplyr::summarise(count = n()) %>% 
+  ungroup() 
+
+mutsDF0 <- tibble()
+for(tissue in condensedTissues)(mutsDF0 <- bind_rows(mutsDF0, gene_df %>% mutate(source = tissue)))
+
+#Expression Data transcriptional scanning paper
+fixDatesTable <- tibble(gene_name = c("01-Dec","01-Sep","02-Sep","03-Mar","03-Sep","04-Mar","04-Sep","05-Mar","05-Sep","06-Mar","06-Sep","07-Mar","07-Sep","08-Mar","08-Sep","09-Mar","09-Sep","10-Mar","10-Sep","11-Mar","11-Sep","12-Sep","14-Sep"),
+                        fix = c("DEC1","SEPT1","SEPT2","MARCH3","SEPT3","MARCH4","SEPT4","MARCH5","SEPT5","MARCH6","SEPT6","MARCH7","SEPT7","MARCH8","SEPT8","MARCH9","SEPT9","MARCH10","SEPT10","MARCH11","SEPT11","SEPT12","SEPT14"))
+
+germCellExpr <- read_csv("/Volumes/GoogleDrive/My Drive/Testes/exprFiles/expr_level_groups.csv", col_types = cols(.default = "c")) %>% 
+  pivot_longer(1:9, names_to = "group", values_to = "gene_name") %>% 
+  drop_na() %>% 
+  left_join(fixDatesTable, by ="gene_name") %>% 
+  mutate(gene_name = if_else(gene_name %in% fixDatesTable$gene_name, fix, gene_name)) %>% 
+  select(-fix) 
+
+mutsDF <- mutsDF0 %>% 
+  left_join(overlapHits, by = c("gene_name", "source")) %>% 
+  mutate(count = replace_na(count, 0)) %>% 
+  left_join(germCellExpr, by = "gene_name") %>% 
+  mutate(group = fct_relevel(group, c("Group_Unexp","Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"))) %>% 
+  drop_na()
+
+plot_glmm <- function(mutTable, dataSources, exprGroups, tests = 8, formula) {
+  #Construct formula and run model
+  df <- tibble()
+  for (dataset in dataSources) {
+    fit_full <- glmer(formula = as.formula(formula), data = (mutTable %>% filter(source == dataset)), family = poisson(),
+                    control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+    #print(dispersion_glmer(fit_full))
+    #print(summary(fit_full, corr = F))
+    tidy_fit_full <- tidy(fit_full) %>% 
+      mutate(group = str_remove(term,"group")) %>% 
+      mutate(p.format = signif(p.value, 2)) %>% 
+      mutate(source = dataset)
+    df <- df %>% bind_rows(tidy_fit_full[2:9,])
+  }
+  #Plot together
+  sigThresh <- 0.05 / tests
+  df2 <- df %>% 
+    mutate(p.format = if_else(p.value < sigThresh, "*", ""))
+  df2$group <- factor(df2$group, levels = exprGroups)
+  df2$source <- factor(df2$source, levels = dataSources)
+  plot <- ggplot(df2, aes(x = group, y = estimate, colour = source, label = p.format, group = interaction(group, source))) +
+    geom_hline(yintercept = 0, colour = "grey") +
+    geom_point(position = position_dodge(0.9), size = 3) +
+    geom_errorbar(aes(ymin=estimate-(std.error*1.96), ymax=estimate+(std.error*1.96)), width=.1, position = position_dodge(0.9)) +
+    geom_text(aes(y = estimate+(std.error*1.96)), colour = "black", size = 4, position = position_dodge(0.9), vjust = -0.75) +
+    theme_minimal()
+  return(plot)
+}
+#Plot for individual datasets then all together
+glmmPlot <- plot_glmm(mutTable = mutsDF, dataSources = condensedTissues, exprGroups = c("Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"), tests = 8, formula = "count ~ group + offset(log(length)) + offset(log(gc_content)) + (1|gene_name)")
+glmmPlot
 
 
 ```
 
-# Full dataset
+
+# Load Datasets
+## Full dataset
 ```{r}
 vcf_files <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Inputs/All", pattern = "\\_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf$", full.names = TRUE)
-
 sample_names <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Inputs/All", pattern = "\\_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf$")
 
 sample_names <- str_remove(sample_names, "_complete_final_retained_4.goodSNPS_appended.manualFiltered.vcf")
@@ -120,10 +339,11 @@ PIDTissue <- as.character(factor(PIDTissue, levels=sort_order_PIDTissue))
 Tissue_Normal_TBN_merged  <- as.character(Tissue) %>% 
   str_replace("Tumour_background-Normal","Normal") %>% 
   str_replace("Normal","Testes") %>% 
-  str_replace("Not_normal(benign)","Testes(benign)")
+  str_replace("Not_normal\\(benign\\)","Testes(benign)")
+
 ```
 
-# Trio dataset
+## Trio dataset
 ```{r}
 #Generate trio vcf files separately
 trio_vcf_files <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/per_sample", pattern = "\\.vcf$", full.names = TRUE)
@@ -156,6 +376,17 @@ trio_Tissue <- as.list(rep("Trio_DNMs",3450))
 load("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/mutational_pattern_LCMsamples.rds")
 
 
+```
+
+## Merge datasets
+```{r}
+#Merge trios data with LCM
+merged_type_occurrences <- rbind(type_occurrences, trio_type_occurrences)
+merged_vcfs <- c(vcfs, trio_vcfs)
+merged_PID <- c(PID, trio_PID)
+merged_PIDTissue <- c(PIDTissue, trio_PIDTissue)
+merged_Tissue <- as.character(c(Tissue_Normal_TBN_merged, trio_Tissue))
+merged_surveyed_list <- c(surveyed_list, trio_surveyed_list)
 
 
 ```
@@ -163,15 +394,9 @@ load("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched
 
 # 6 Mutation Type plots
 ```{r}
-#Merge trios data with LCM
-merged_type_occurrences <- rbind(type_occurrences, trio_type_occurrences)
-
-merged_PID <- c(PID, trio_PID)
-merged_PIDTissue <- c(PIDTissue, trio_PIDTissue)
-merged_Tissue <- as.character(c(Tissue_Normal_TBN_merged, trio_Tissue))
 
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/MutPat-ByPIDTissue-6mutTypes_withTrioData.png", res=300, units="in", width = 12, height=7)
-plot_spectrum(merged_type_occurrences, by= merged_Tissue, CT = TRUE, legend = TRUE)
+plot_spectrum(condensed_type_occurrences, by= condensedTissues, CT = TRUE, legend = TRUE)
 dev.off()
 
 ```
@@ -181,12 +406,8 @@ dev.off()
 mutational_catalog_colors <- c("#2EBAED", "#000000", "#DE1C14","#D4D2D2", "#ADCC54", "#F0D0CE")
 names(mutational_catalog_colors) <- c("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
 
-mut_mat <- mut_matrix(vcf_list = vcfs, ref_genome = ref_genome)
+mut_mat <- mut_matrix(vcf_list = condensedVCFs, ref_genome = ref_genome)
 colnames(mut_mat)
-
-save(vcfs,PID,PIDTissue, Tissue,Tissue_Normal_TBN_merged,sample_names,mutational_catalog_colors, surveyed_list, file = "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/mutational_pattern_allsamples.rds")
-load("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/mutational_pattern_allsamples.rds")
-
 
 # Per sample
 for(i in colnames(mut_mat)){
@@ -203,8 +424,8 @@ for(i in colnames(mut_mat)){
 
 
 # Per Tissue ("Testes", "Colon", "Testes(Benign)", Trio_DNMs)  with 95% confidence intervals
-for(i in unique(Tissue_Normal_TBN_merged)){
-  rownumbers <- which(Tissue_Normal_TBN_merged == i)
+for(i in unique(condensedTissues)){
+  rownumbers <- which(condensedTissues == i)
   mut_mat_Tmp <- mut_mat[,rownumbers]
   mut_mat_Tmp_mat <- as.matrix(mut_mat_Tmp)
   mut_mat_Tmp_mat <- mut_mat_Tmp_mat/colSums(mut_mat_Tmp_mat)
@@ -226,117 +447,17 @@ for(i in unique(Tissue_Normal_TBN_merged)){
   dev.off()
 }
 
-# Per PID  with 95% confidence intervals
-for(i in unique(PID)){
-  rownumbers <- which(PID == i)
-  mut_mat_Tmp <- mut_mat[,rownumbers]
-  mut_mat_Tmp_mat <- as.matrix(mut_mat_Tmp)
-  mut_mat_Tmp_mat <- mut_mat_Tmp_mat/colSums(mut_mat_Tmp_mat)
-  mut_mat_Tmp <- as.data.frame(mut_mat_Tmp_mat)
-  mut_mat_plot <- data.frame(matrix(ncol = 2, nrow = length(rownames(mut_mat_Tmp))))
-  colnames(mut_mat_plot) <- c("mean", "ci95")
-  rownames(mut_mat_plot) <- rownames(mut_mat_Tmp)
-  for(j in rownames(mut_mat_Tmp)){
-     info <- summarySE(t(mut_mat_Tmp),measurevar=j,na.rm = FALSE, conf.interval = 0.95)
-     mut_mat_plot[j,"mean"] <- info[,j]
-     mut_mat_plot[j,"ci95"] <- info[,"ci"]
-  }
-  mut_mat_plot[,"Context"] <- paste(substr(rownames(mut_mat_plot),1,1),substr(rownames(mut_mat_plot),3,3),substr(rownames(mut_mat_plot),7,7), sep="")
-  mut_mat_plot[,"Type"] <- substr(rownames(mut_mat_plot),3,5)
-  p <- ggplot(mut_mat_plot, aes(x=Context, y=mean, fill=Type)) + geom_bar(stat="identity", color="black", position=position_dodge()) + geom_errorbar(aes(ymin=mean-ci95, ymax=mean+ci95), width=.2, position=position_dodge(.9)) + facet_grid(.~Type, scales="free", space = "free") + scale_fill_manual(values=mutational_catalog_colors)+theme_pubr()+theme(legend.position="right", legend.direction="vertical", panel.spacing = unit(0, "lines"), axis.text.x = element_text(angle=90, vjust=0.5, hjust=0, size=5))+ylab("Relative Contribution") + xlab("")
-  i <- str_replace(i, "/","_")
-  outfile <- paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Per_PID_Mutational_context_plots/muta_spectrum_plot.",i,".png",sep="")
-  png(file=outfile, res=300, units="in", height = 3, width=9)
-  print(p)
-  dev.off()
-}
-
-# Per PID sparated by tissue with 95% confidence intervals
-for(i in unique(PIDTissue)){
-  rownumbers <- which(PIDTissue == i)
-  mut_mat_Tmp <- mut_mat[,rownumbers]
-  mut_mat_Tmp_mat <- as.matrix(mut_mat_Tmp)
-  mut_mat_Tmp_mat <- mut_mat_Tmp_mat/colSums(mut_mat_Tmp_mat)
-  mut_mat_Tmp <- as.data.frame(mut_mat_Tmp_mat)
-  mut_mat_plot <- data.frame(matrix(ncol = 2, nrow = length(rownames(mut_mat_Tmp))))
-  colnames(mut_mat_plot) <- c("mean", "ci95")
-  rownames(mut_mat_plot) <- rownames(mut_mat_Tmp)
-  for(j in rownames(mut_mat_Tmp)){
-     info <- summarySE(t(mut_mat_Tmp),measurevar=j,na.rm = FALSE, conf.interval = 0.95)
-     mut_mat_plot[j,"mean"] <- info[,j]
-     mut_mat_plot[j,"ci95"] <- info[,"ci"]
-  }
-  mut_mat_plot[,"Context"] <- paste(substr(rownames(mut_mat_plot),1,1),substr(rownames(mut_mat_plot),3,3),substr(rownames(mut_mat_plot),7,7), sep="")
-  mut_mat_plot[,"Type"] <- substr(rownames(mut_mat_plot),3,5)
-  p <- ggplot(mut_mat_plot, aes(x=Context, y=mean, fill=Type)) + geom_bar(stat="identity", color="black", position=position_dodge()) + geom_errorbar(aes(ymin=mean-ci95, ymax=mean+ci95), width=.2, position=position_dodge(.9)) + facet_grid(.~Type, scales="free", space = "free") + scale_fill_manual(values=mutational_catalog_colors)+theme_pubr()+theme(legend.position="right", legend.direction="vertical", panel.spacing = unit(0, "lines"), axis.text.x = element_text(angle=90, vjust=0.5, hjust=0, size=5))+ylab("Relative Contribution") + xlab("")
-  i <- str_replace(i, "/","_")
-  outfile <- paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Per_PIDTissue_Mutational_context_plots/muta_spectrum_plot.",i,".png",sep="")
-  png(file=outfile, res=300, units="in", height = 3, width=9)
-  print(p)
-  dev.off()
-}
-
-# Per PID with STDDEV
-for(i in unique(PID)){
-  rownumbers <- which(PID == i)
-  mut_mat_Tmp <- mut_mat[,rownumbers]
-  mut_mat_Tmp_mat <- as.matrix(mut_mat_Tmp)
-  mut_mat_Tmp_mat <- mut_mat_Tmp_mat/colSums(mut_mat_Tmp_mat)
-  mut_mat_Tmp <- as.data.frame(mut_mat_Tmp_mat)
-  mut_mat_plot <- data.frame(matrix(ncol = 2, nrow = length(rownames(mut_mat_Tmp))))
-  colnames(mut_mat_plot) <- c("mean", "sd")
-  rownames(mut_mat_plot) <- rownames(mut_mat_Tmp)
-  for(j in rownames(mut_mat_Tmp)){
-     info <- summarySE(t(mut_mat_Tmp),measurevar=j,na.rm = FALSE, conf.interval = 0.95)
-     mut_mat_plot[j,"mean"] <- info[,j]
-     mut_mat_plot[j,"sd"] <- info[,"sd"]
-  }
-  mut_mat_plot[,"Context"] <- paste(substr(rownames(mut_mat_plot),1,1),substr(rownames(mut_mat_plot),3,3),substr(rownames(mut_mat_plot),7,7), sep="")
-  mut_mat_plot[,"Type"] <- substr(rownames(mut_mat_plot),3,5)
-  p <- ggplot(mut_mat_plot, aes(x=Context, y=mean, fill=Type)) + geom_bar(stat="identity", color="black", position=position_dodge()) + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(.9)) + facet_grid(.~Type, scales="free", space = "free") + scale_fill_manual(values=mutational_catalog_colors)+theme_pubr()+theme(legend.position="right", legend.direction="vertical", panel.spacing = unit(0, "lines"), axis.text.x = element_text(angle=90, vjust=0.5, hjust=0, size=5))+ylab("Relative Contribution") + xlab("")
-  i <- str_replace(i, "/","_")
-  outfile <- paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Per_PID_Mutational_context_plots/muta_spectrum_plot.",i,"withSTDev.png",sep="")
-  png(file=outfile, res=300, units="in", height = 3, width=9)
-  print(p)
-  dev.off()
-}
-
-# Per PID sparated by tissue with STDDEV
-for(i in unique(PIDTissue)){
-  rownumbers <- which(PIDTissue == i)
-  mut_mat_Tmp <- mut_mat[,rownumbers]
-  mut_mat_Tmp_mat <- as.matrix(mut_mat_Tmp)
-  mut_mat_Tmp_mat <- mut_mat_Tmp_mat/colSums(mut_mat_Tmp_mat)
-  mut_mat_Tmp <- as.data.frame(mut_mat_Tmp_mat)
-  mut_mat_plot <- data.frame(matrix(ncol = 2, nrow = length(rownames(mut_mat_Tmp))))
-  colnames(mut_mat_plot) <- c("mean", "sd")
-  rownames(mut_mat_plot) <- rownames(mut_mat_Tmp)
-  for(j in rownames(mut_mat_Tmp)){
-     info <- summarySE(t(mut_mat_Tmp),measurevar=j,na.rm = FALSE, conf.interval = 0.95)
-     mut_mat_plot[j,"mean"] <- info[,j]
-     mut_mat_plot[j,"sd"] <- info[,"sd"]
-  }
-  mut_mat_plot[,"Context"] <- paste(substr(rownames(mut_mat_plot),1,1),substr(rownames(mut_mat_plot),3,3),substr(rownames(mut_mat_plot),7,7), sep="")
-  mut_mat_plot[,"Type"] <- substr(rownames(mut_mat_plot),3,5)
-  p <- ggplot(mut_mat_plot, aes(x=Context, y=mean, fill=Type)) + geom_bar(stat="identity", color="black", position=position_dodge()) + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(.9)) + facet_grid(.~Type, scales="free", space = "free") + scale_fill_manual(values=mutational_catalog_colors)+theme_pubr()+theme(legend.position="right", legend.direction="vertical", panel.spacing = unit(0, "lines"), axis.text.x = element_text(angle=90, vjust=0.5, hjust=0, size=5))+ylab("Relative Contribution") + xlab("")
-  i <- str_replace(i, "/","_")
-  outfile <- paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Per_PIDTissue_Mutational_context_plots/muta_spectrum_plot.",i,"withSTDev.png",sep="")
-  png(file=outfile, res=300, units="in", height = 3, width=9)
-  print(p)
-  dev.off()
-}
-
 ```
 
 
-##Transcriptional strand bias analysis
+## Transcriptional strand bias analysis
 ```{r}
-ymax=max()
+
 genes_hg19 <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene)
-mut_mat_s <- mut_matrix_stranded(vcfs, ref_genome, genes_hg19)
+mut_mat_s <- mut_matrix_stranded(condensedVCFs, ref_genome, genes_hg19)
 
 #By Tissue Type ("Testes", "Colon", "Testes(Benign)")
-strand_counts <- strand_occurrences(mut_mat_s, by=Tissue_Normal_TBN_merged)
+strand_counts <- strand_occurrences(mut_mat_s, by=condensedTissues)
 #Poisson test for strand asymmetry significance
 strand_bias <- strand_bias_test(strand_counts)
 #Plot the mutation spectrum with strand distinction:
@@ -401,7 +522,7 @@ src <- src_organism("TxDb.Hsapiens.UCSC.hg19.knownGene")
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene 
 head(seqlevels(txdb))
 columns(txdb)
-txdb$GENEID
+
 coding <- cds(txdb)
 coding_df <- data.frame(Chr=seqnames(coding), Start=start(coding)-1, End=end(coding), Strand=strand(coding))
 write.table(coding_df,file="/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions/Homo_sapiens.GRCh37.75_coding.bed", sep="\t", row.names = FALSE, quote = FALSE)
@@ -419,19 +540,15 @@ hg19_nongenic = setdiff(hg19_Granges, genes_hg19, ignore.strand=T)
 # Combine all genomic regions (GRanges objects) in a named list:
 regions = list(genes_hg19, hg19_nongenic)
 names(regions) = c("Genes", "Non-genic")
-distr <- genomic_distribution(vcfs, surveyed_list, regions)
+distr <- genomic_distribution(condensedVCFs, merged_surveyed_list, regions)
+trio_distr <- genomic_distribution(trio_vcfs, trio_surveyed_list, regions)
+testis_distr <- genomic_distribution(vcfs, surveyed_list, regions)
 
 
-distr_test <- enrichment_depletion_test(distr, by=Tissue_Normal_TBN_merged)
+distr_test <- enrichment_depletion_test(distr, by=condensedTissues)
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/Genic_vs_NonGenic-ByTissue.png", res=300, units="in", width = 5, height=5)
 plot_enrichment_depletion(distr_test)
 dev.off()
-
-distr_test <- enrichment_depletion_test(distr, by=PIDTissue)
-png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/Genic_vs_NonGenic-ByPIDTissue.png", res=300, units="in", width = 8, height=8)
-plot_enrichment_depletion(distr_test)
-dev.off()
-
 
 ```
 
@@ -447,19 +564,14 @@ regions <- GRangesList(promoter_g, flanking_g, CTCF_g)
 names(regions) <- c("Promoter", "Promoter flanking", "CTCF")
 seqlevelsStyle(regions) <- "UCSC"
 
-distr <- genomic_distribution(vcfs, surveyed_list, regions)
+distr <- genomic_distribution(condensedVCFs, merged_surveyed_list, regions)
 
-distr_test <- enrichment_depletion_test(distr,by=Tissue_Normal_TBN_merged)
+distr_test <- enrichment_depletion_test(distr,by=condensedTissues)
 plot_enrichment_depletion(distr_test)
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/CTCF_Promoter_Flanking-ByTissue.png", res=300, units="in", width = 6, height=5)
 plot_enrichment_depletion(distr_test)
 dev.off()
 
-distr_test <- enrichment_depletion_test(distr,by=PIDTissue)
-plot_enrichment_depletion(distr_test)
-png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/CTCF_Promoter_Flanking-ByPIDTissue.png", res=300, units="in", width = 8, height=10)
-plot_enrichment_depletion(distr_test)
-dev.off()
 ```
 
 
@@ -497,16 +609,16 @@ s <- as.factor(strand(repStrand))[selectHits(f, select="first")]
 return(s)
 }
 seqlevelsStyle(repStrand) <- "UCSC"
-Leading_strand <- repStrand[which(strand(repStrand) == "+")]
-Lagging_strand <- repStrand[which(strand(repStrand) == "-")]
-Unassigned_strand <- repStrand[which(strand(repStrand) == "*")]
+Leading_strand <- repStrand[strand(repStrand) == "+"]
+Lagging_strand <- repStrand[strand(repStrand) == "-"]
+Unassigned_strand <- repStrand[strand(repStrand) == "*"]
 
 replicationDirection_list <- GRangesList(Leading_strand, Lagging_strand, Unassigned_strand)
 names(replicationDirection_list) <- c("Leading", "Lagging", "Unassigned")
 
-gen_dist = genomic_distribution(vcfs, surveyed_list, replicationDirection_list)
+gen_dist = genomic_distribution(condensedVCFs, merged_surveyed_list, replicationDirection_list)
 
-distr_test <- enrichment_depletion_test(gen_dist,by=Tissue_Normal_TBN_merged)
+distr_test <- enrichment_depletion_test(gen_dist,by=condensedTissues)
 plot_enrichment_depletion(distr_test)
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/Replication_direction-ByTissue.png", res=300, units="in", width = 6, height=5)
 plot_enrichment_depletion(distr_test)
@@ -537,26 +649,19 @@ for(i in regions_files){
   regions_list[[i]] <- region
 }
 
-names(regions_list) = c("H3k27ac", "H3K9me3", "Early", "Intermediate", "Late", "Coding")
+names(regions_list) = c("H3k27ac", "H3K9me3", "Early", "Intermediate", "Late")
 
 # Find overlaps between mutations and genomic regions
 # dit draaien zonder subset
-gen_dist = genomic_distribution(vcfs, surveyed_list, regions_list)
+gen_dist_timing = genomic_distribution(vcfs, surveyed_list, regions_list)
 
-enr_depl = enrichment_depletion_test(gen_dist, by = Tissue_Normal_TBN_merged)
+enr_depl = enrichment_depletion_test(gen_dist, by = condensedTissues)
 enr_depl$by = factor(enr_depl$by, levels = c("Colon", "Testes", "Testes(benign)","Trio_DNMs"))
 enr_depl$region = factor(enr_depl$region, levels = c("Coding", "Early", "Intermediate", "Late",  "H3k27ac", "H3K9me3"))
 plot_enrichment_depletion(enr_depl)
 
 
 png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/enrichment_depletion-byTissue.png", width=8, height=6, res=300, units="in")
-plot_enrichment_depletion(enr_depl)
-dev.off()
-
-enr_depl = enrichment_depletion_test(gen_dist, by = PIDTissue)
-enr_depl$region = factor(enr_depl$region, levels = c("Coding", "Early", "Intermediate", "Late",  "H3k27ac", "H3K9me3"))
-
-png("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Enrichment_Analyses/Genomic_regions/enrichment_depletion-byPIDTissue.png", width=16, height=6, res=300, units="in")
 plot_enrichment_depletion(enr_depl)
 dev.off()
 
