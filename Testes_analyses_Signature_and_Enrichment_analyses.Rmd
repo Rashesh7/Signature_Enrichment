@@ -25,7 +25,6 @@ library(plyr)
 library(randomcoloR)
 library(RColorBrewer)
 library(reshape2)
-library(tidyverse)
 library(BSgenome)
 library(TCGAbiolinks)
 library(org.Hs.eg.db)
@@ -33,8 +32,9 @@ library(Organism.dplyr)
 ref_genome <- "BSgenome.Hsapiens.UCSC.hg19"
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(ref_genome, character.only = TRUE)
+library(tidyverse)
 options(scipen = 999)
-theme_set(theme_cowplot())
+
 ```
 
 # Condensed analysis
@@ -47,16 +47,22 @@ testesVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_pro
 #Testes Benign
 testesBenignVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Benign_Testes.vcf.gz", "Testes(Benign)", ref_genome, check_alleles=T)
 
+#Testes Tumour
+testesTumourVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Tolly_Tumour_data/Tumour_data.vcf", "Testes(Tumour)", ref_genome, check_alleles=T)
+
 #Colon Normal
 colonVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Colon.vcf.gz", "Colon", ref_genome, check_alleles=T)
 
 #Trio Sample
 triosVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/Trio_data.vcf.gz", "Trio_data", ref_genome, check_alleles=T)
 
-condensedVCFs <- c(colonVCF, testesVCF, testesBenignVCF,  triosVCF)
-groupedVCFs <- c(colonVCF[[1]], testesVCF[[1]], testesBenignVCF[[1]],  triosVCF[[1]])
-condensedTissues <- c("Colon","Testes", "Testes(Benign)", "Trio_DNMs")
-condensedSource <- tibble(source = c(rep("Colon",length(colonVCF[[1]])), rep("Testes",length(testesVCF[[1]])), rep("Testes(Benign)",length(testesBenignVCF[[1]])), rep("Trio_DNMs",length(triosVCF[[1]]))))
+#Lung Normal
+lungVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Kenichi-Lung_data/Lung_data.unique.vcf", "Lung", ref_genome, check_alleles=T)
+
+condensedVCFs <- c(colonVCF, lungVCF, testesVCF, testesBenignVCF, testesTumourVCF, triosVCF)
+groupedVCFs <- c(colonVCF[[1]], lungVCF[[1]], testesVCF[[1]], testesBenignVCF[[1]], testesTumourVCF[[1]], triosVCF[[1]])
+condensedTissues <- c("Colon","Lung","Testes", "Testes(Benign)", "Testes(Tumour)", "Trio_DNMs")
+condensedSource <- tibble(source = c(rep("Colon",length(colonVCF[[1]])), rep("Lung",length(lungVCF[[1]])), rep("Testes",length(testesVCF[[1]])), rep("Testes(Benign)",length(testesBenignVCF[[1]])), rep("Testes(Tumour)",length(testesTumourVCF[[1]])), rep("Trio_DNMs",length(triosVCF[[1]]))))
 
 condensed_muts = mutations_from_vcf(condensedVCFs[[1]])
 condensed_types = mut_type(condensedVCFs[[1]])
@@ -67,7 +73,7 @@ condensed_type_occurrences <- mut_type_occurrences(condensedVCFs, ref_genome)
 #Surveyed Regions: Here just using full genomic coordinates for testing/simplicity. Extend to detailed surveyed regions later.
 condensed_surveyed <- import("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/Trio_DNMs.callable.bed")
 seqlevelsStyle(condensed_surveyed) <- "UCSC"
-condensed_surveyed_list <- rep(list(condensed_surveyed), 4)
+condensed_surveyed_list <- rep(list(condensed_surveyed), length(condensedTissues))
 
 #Corrected pvalue
 p_corrected = 0.05/(length(condensedTissues))
@@ -101,35 +107,35 @@ ps1 / ps2
 ```{r}
 # Method from Harald(TensorSignatures)
 # Replication times
-repTimeGm12878 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq//wgEncodeUwRepliSeqGm12878WaveSignalRep1.bigWig", format="BigWig")
-repTimeK569 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqK562WaveSignalRep1.bigWig", format="BigWig")
-repTimeHela <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHelas3WaveSignalRep1.bigWig", format="BigWig")
-repTimeHuvec <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHuvecWaveSignalRep1.bigWig", format="BigWig")
-repTimeHepg2 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHepg2WaveSignalRep1.bigWig", format="BigWig")
-
-repTime <- granges(repTimeGm12878)
-mcols(repTime) <- DataFrame(mg12878=repTimeGm12878$score, hela=repTimeHela$score, k562=repTimeK569$score, huvec=repTimeHuvec$score, hepg2=repTimeHepg2$score)
-ndiff <- function(x) (c(NA,x[-length(x)]) - c(x[-1],NA))
-t <- sapply(mcols(repTime), ndiff)
-m <- rowMeans(t)
-s <- rowMeans(sqrt((t-m)^2))
-table(abs(m)-2*s > 0)
-
-repStrand <- granges(repTime)
-strand(repStrand)[which(m<0)] <- "+" 
-strand(repStrand)[which(m>0)] <- "-" 
-strand(repStrand)[which(abs(m)-2*s < 0)] <- "*" 
-seqlevels(repStrand) <- sub("chr","", seqlevels(repStrand))
-
-seqlevelsStyle(repStrand) <- "UCSC"
-Leading_strand <- repStrand[strand(repStrand) == "+"]
-Lagging_strand <- repStrand[strand(repStrand) == "-"]
-Unassigned_strand <- repStrand[strand(repStrand) == "*"]
-
-replicationDirection_list <- GRangesList(Leading_strand, Lagging_strand, Unassigned_strand)
-names(replicationDirection_list) <- c("Leading", "Lagging", "Unassigned")
-
-save(replicationDirection_list, file="replicationDirection_list.RData")
+# repTimeGm12878 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq//wgEncodeUwRepliSeqGm12878WaveSignalRep1.bigWig", format="BigWig")
+# repTimeK569 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqK562WaveSignalRep1.bigWig", format="BigWig")
+# repTimeHela <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHelas3WaveSignalRep1.bigWig", format="BigWig")
+# repTimeHuvec <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHuvecWaveSignalRep1.bigWig", format="BigWig")
+# repTimeHepg2 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHepg2WaveSignalRep1.bigWig", format="BigWig")
+# 
+# repTime <- granges(repTimeGm12878)
+# mcols(repTime) <- DataFrame(mg12878=repTimeGm12878$score, hela=repTimeHela$score, k562=repTimeK569$score, huvec=repTimeHuvec$score, hepg2=repTimeHepg2$score)
+# ndiff <- function(x) (c(NA,x[-length(x)]) - c(x[-1],NA))
+# t <- sapply(mcols(repTime), ndiff)
+# m <- rowMeans(t)
+# s <- rowMeans(sqrt((t-m)^2))
+# table(abs(m)-2*s > 0)
+# 
+# repStrand <- granges(repTime)
+# strand(repStrand)[which(m<0)] <- "+" 
+# strand(repStrand)[which(m>0)] <- "-" 
+# strand(repStrand)[which(abs(m)-2*s < 0)] <- "*" 
+# seqlevels(repStrand) <- sub("chr","", seqlevels(repStrand))
+# 
+# seqlevelsStyle(repStrand) <- "UCSC"
+# Leading_strand <- repStrand[strand(repStrand) == "+"]
+# Lagging_strand <- repStrand[strand(repStrand) == "-"]
+# Unassigned_strand <- repStrand[strand(repStrand) == "*"]
+# 
+# replicationDirection_list <- GRangesList(Leading_strand, Lagging_strand, Unassigned_strand)
+# names(replicationDirection_list) <- c("Leading", "Lagging", "Unassigned")
+# 
+# save(replicationDirection_list, file="replicationDirection_list.RData")
 
 load("replicationDirection_list.RData")
 
@@ -143,6 +149,38 @@ plot_enrichment_depletion(repStrand_depl)
 ## Replication Timing
 ```{r}
 ## Method from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5536223/pdf/emss-73438.pdf
+# regions bed files
+regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions", full.names = T)
+print(regions_files)
+
+regions_files = regions_files[3:5]
+
+# region bed files
+regions_list=list()
+for(i in regions_files){
+  print(i)
+  region <- import(i)
+  ## Import the file using rtracklayer and use the UCSC naming standard
+  seqlevelsStyle(region) <- "UCSC"
+  regions_list[[i]] <- region
+}
+
+#names(regions_list) = c("H3k27ac", "H3K9me3", "Early", "Intermediate", "Late", "Autosomal_exon", "Coding")
+names(regions_list) = c("Early", "Intermediate", "Late")
+
+# Find overlaps between mutations and genomic regions
+repTiming_dist = genomic_distribution(condensedVCFs, condensed_surveyed_list, regions_list)
+
+repTiming_depl = enrichment_depletion_test(repTiming_dist, by = condensedTissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+repTiming_depl$region = factor(repTiming_depl$region, levels = c("Early", "Intermediate", "Late"))
+plot_enrichment_depletion(repTiming_depl)
+
+```
+
+## Adding features
+```{r}
 # regions bed files
 regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions", full.names = T)
 print(regions_files)
@@ -255,7 +293,6 @@ plot_glmm <- function(mutTable, dataSources, exprGroups, tests = 8, formula) {
 #Plot for individual datasets then all together
 glmmPlot <- plot_glmm(mutTable = mutsDF, dataSources = condensedTissues, exprGroups = c("Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"), tests = 8, formula = "count ~ group + offset(log(length)) + offset(log(gc_content)) + (1|gene_name)")
 glmmPlot
-
 
 ```
 
