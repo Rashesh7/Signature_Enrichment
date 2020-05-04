@@ -64,7 +64,6 @@ plot_enrichment_depletion_prop <- function (df) {
 #Testes Normal 
 testesVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Testes.vcf.gz", "Testes", ref_genome, check_alleles=T)
 
-
 #Colon Normal
 colonVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_Tissue/Colon.vcf.gz", "Colon", ref_genome, check_alleles=T)
 
@@ -122,15 +121,15 @@ colonIndivFiles <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project
 colonIndivSamples <-  str_remove(list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_PID-Tissue/Colon", pattern = ".vcf.gz"), ".vcf.gz")
 colonIndivVCF <- read_vcfs_as_granges(colonIndivFiles, colonIndivSamples, ref_genome, check_alleles=T)
 
-colonIndivSurveyedList <- vector(mode = "list")
-for(i in colonIndivSamples){
-  print(paste("Reading", i))
-  surveyed <- import(paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Colon/",i,".sorted.merged.bed", sep=""))
-  ## Import the file using rtracklayer and use the UCSC naming standard
-  seqlevelsStyle(surveyed) <- "UCSC"
-  colonIndivSurveyedList[[i]] <- surveyed
-}
-save(colonIndivSurveyedList, file="colonIndivSurveyedList.RData")
+# colonIndivSurveyedList <- vector(mode = "list")
+# for(i in colonIndivSamples){
+#   print(paste("Reading", i))
+#   surveyed <- import(paste("/Users/mn7/volumes/rs30_lustre/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Colon/",i,".sorted.merged.bed", sep=""))
+#   ## Import the file using rtracklayer and use the UCSC naming standard
+#   seqlevelsStyle(surveyed) <- "UCSC"
+#   colonIndivSurveyedList[[i]] <- surveyed
+# }
+# save(colonIndivSurveyedList, file="colonIndivSurveyedList.RData")
 load("colonIndivSurveyedList.RData")
 
 condensedVCFs <- c(testesVCF, testesIndivVCF, colonVCF, colonIndivVCF)
@@ -168,7 +167,7 @@ condensedSource <- tibble(source = c(rep("Testes",length(testesVCF[[1]])), rep("
 #Surveyed Regions: Detailed for botseq
 surveyed_files <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Sperm", pattern = ".bed", full.names = TRUE)
 surveyed_files
-# #Healthy sperm
+#Healthy sperm
 # surveyed1 <- import(surveyed_files[1])
 # surveyed2 <- import(surveyed_files[2])
 # seqlevelsStyle(surveyed1) <- "UCSC"
@@ -176,7 +175,7 @@ surveyed_files
 # healthySpermSurveyedList <- vector(mode = "list")
 # healthySpermSurveyedList[[1]] <- surveyed1
 # healthySpermSurveyedList[[2]] <- surveyed2
-save(botseqPOLsurveyedList, file="healthySpermSurveyedList.RData")
+# save(healthySpermSurveyedList, file="healthySpermSurveyedList.RData")
 
 load("healthySpermSurveyedList.RData")
 
@@ -194,7 +193,7 @@ load("healthySpermSurveyedList.RData")
 # botseqPOLsurveyedList[[2]] <- surveyed4
 # botseqPOLsurveyedList[[3]] <- surveyed5
 # botseqPOLsurveyedList[[4]] <- surveyed6
-save(botseqPOLsurveyedList, file="botseqPOLsurveyedList.RData")
+# save(botseqPOLsurveyedList, file="botseqPOLsurveyedList.RData")
 
 load("botseqPOLsurveyedList.RData")
 
@@ -251,13 +250,7 @@ condensed_surveyed_list <- rep(list(condensed_surveyed), length(condensedTissues
 
 ## Generic Objects
 ```{r Generic_Objects}
-condensed_muts <- mutations_from_vcf(condensedVCFs[[1]])
-condensed_types <- mut_type(condensedVCFs[[1]])
-condensed_context <- mut_context(condensedVCFs[[1]], ref_genome)
-condensed_type_context <- type_context(condensedVCFs[[1]], ref_genome)
 condensed_type_occurrences <- mut_type_occurrences(condensedVCFs, ref_genome)
-
-
 #Corrected pvalue
 p_corrected = 0.05/(length(condensedTissues))
 ```
@@ -274,7 +267,10 @@ plot_spectrum(condensed_type_occurrences, by= condensedTissues, CT = TRUE, legen
 ## Transcriptional strand bias analysis
 ```{r transcriptionBias, fig.height=4, fig.width=10}
 genes_hg19 <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene)
-mut_mat_s <- mut_matrix_stranded(condensedVCFs, ref_genome, genes_hg19)
+cds_hg19 <- cds(TxDb.Hsapiens.UCSC.hg19.knownGene)
+transcripts_hg19 <- transcripts(TxDb.Hsapiens.UCSC.hg19.knownGene)
+
+mut_mat_s <- mut_matrix_stranded(condensedVCFs, ref_genome, transcripts_hg19)
 #By Tissue Type ("Testes", "Colon", "Testes(Benign)")
 strand_counts <- strand_occurrences(mut_mat_s, by=condensedTissues)
 #Poisson test for strand asymmetry significance
@@ -340,7 +336,6 @@ plot_enrichment_depletion_prop(repStrand_depl)
 # regions bed files
 
 regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/External_Data-Code/Tissue-specific_mutation_accumulation-paper/Data/genomic_regions", full.names = T)
-print(regions_files)
 
 regions_files = regions_files[3:5]
 
@@ -470,7 +465,7 @@ plot_enrichment_depletion_prop(segments_depl)
 
 # Other Analysis
 ## Custom Rep Timing
-```{r}
+```{r density, fig.height=5, fig.width=4}
 repTimeH9es <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeFsuRepliChip/wgEncodeFsuRepliChipH9esWaveSignalRep1.bigWig", format="BigWig")
 repTimeH9es <- keepStandardChromosomes(repTimeH9es, pruning.mode="coarse")
 seqlevelsStyle(repTimeH9es) <- "NCBI"
@@ -550,32 +545,141 @@ repTimeDensity <- function(repTimeDF, repTimeGR) {
   return(densityDF)
 }
 
-repTimeDensity(H9es1mb, H9es1mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
-  geom_density(adjust = 1/5) +
+densityH9es1 <- repTimeDensity(H9es1mb, H9es1mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
+  geom_density(adjust = 1/2) +
   theme_minimal() +
   scale_x_reverse() +
-  xlab("<- Early             RepTime           Late ->")
+  xlab("<- Early             RepTime (H9es)           Late ->")
 
-repTimeDensity(Gm128781mb, Gm128781mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
-  geom_density(adjust = 1/5) +
+densityGm12878 <- repTimeDensity(Gm128781mb, Gm128781mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
+  geom_density(adjust = 1/2) +
   theme_minimal() +
   scale_x_reverse() +
-  xlab("<- Early             RepTime           Late ->")
+  xlab("<- Early             RepTime (Gm12878)           Late ->")
 
-repTimeDensity(LCL1mb, LCL1mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
-  geom_density(adjust = 1/5) +
+densityLCL <- repTimeDensity(LCL1mb, LCL1mb_gr) %>% ggplot(aes(x=repTime, color = source)) +
+  geom_density(adjust = 1/2) +
   theme_minimal() +
   scale_x_reverse() +
-  xlab("<- Early             RepTime           Late ->")
+  xlab("<- Early             RepTime (LCL)           Late ->")
+
+densityH9es1  / densityLCL / densityGm12878 + plot_layout(guides = 'collect')
+```
+
+## SigFit Dataset
+```{r SigFitData}
+repTimingFolder = "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/ReplicationTiming/"
+pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
+
+getMutTable <- function(mutFolder) {
+  files <- list.files(paste0(repTimingFolder, mutFolder), pattern = ".vcf", full.names = TRUE)
+  samples <-  str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = ".vcf"), ".vcf")
+  VCF <- read_vcfs_as_granges(files, samples, ref_genome, check_alleles=T)
+  muts <- t(mut_matrix(vcf_list = VCF, ref_genome))
+  return(muts)
+}
+
+getOppTable <- function(callableFolder) {
+  pyrCountFiles <- list.files(paste0(repTimingFolder, callableFolder), pattern = ".pyr.tsv", full.names = TRUE)
+  samples <-  str_remove(list.files(paste0(repTimingFolder, callableFolder), pattern = ".pyr.tsv"), ".pyr.tsv")
+  opps <- NULL
+  for(i in pyrCountFiles) {
+    pyrDF <- read_tsv(i, col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2]
+    opps <- bind_cols(opps, pyrDF)
+  }
+  colnames(opps) <- samples
+  opps <- t(opps)
+  return(opps)
+}
+
+#Testes
+testesEarlyMuts <- getMutTable(mutFolder = "Testes_Early/")
+testesEarlyOpps <- getOppTable(callableFolder = "SigFit/Testes_Early_Callable/")
+
+testesIntermediateMuts <- getMutTable(mutFolder = "Testes_Intermediate/")
+testesIntermediateOpps <- getOppTable(callableFolder = "SigFit/Testes_Intermediate_Callable/")
+
+testesLateMuts <- getMutTable(mutFolder = "Testes_Late/")
+testesLateOpps <- getOppTable(callableFolder = "SigFit/Testes_Late_Callable/")
+
+#Colon
+colonEarlyMuts <- getMutTable(mutFolder = "Colon_Early/")
+colonEarlyOpps <- getOppTable(callableFolder = "SigFit/Colon_Early_Callable/")
+
+colonIntermediateMuts <- getMutTable(mutFolder = "Colon_Intermediate/")
+colonIntermediateOpps <- getOppTable(callableFolder = "SigFit/Colon_Intermediate_Callable/")
+
+colonLateMuts <- getMutTable(mutFolder = "Colon_Late/")
+colonLateOpps <- getOppTable(callableFolder = "SigFit/Colon_Late_Callable/")
 
 
 ```
 
 
+
 ## SigFit RepTiming
 ```{r SigFit}
+data("cosmic_signatures_v3")
+#Choose 1, 5 and 18 for testes and colon
+selected_signatures <- cosmic_signatures_v3[rownames(cosmic_signatures_v3) %in% c("SBS1", "SBS5", "SBS18"),]
+#sigfit::plot_spectrum(testesEarlyMuts)
 
-data("cosmic_signatures_v2")
+plotExposureSimple <- function(muts, opps = NULL){
+  fit <- fit_signatures(counts = muts, signatures = selected_signatures,
+                                   iter = 4000, 
+                                   warmup = 2000, 
+                                   chains = 1, 
+                                   seed = 1756,
+                              opportunities = opps)
+  exposures <- retrieve_pars(fit, par = "exposures") [[1]]
+  exposurePlot <- tibble(sample = row.names(exposures), exposures[1:3]) %>% 
+    pivot_longer(-sample, names_to = "signature") %>% 
+    mutate(signature = fct_relevel(signature, c("SBS18", "SBS5","SBS1"))) %>% 
+    ggplot(aes(fill = signature, y = value, x = sample)) +
+      geom_bar(position="stack", stat="identity") +
+      theme_minimal() +
+      theme(axis.text.x = element_blank())
+      #theme(axis.text.x = element_text(angle = 90))
+  return(exposurePlot)
+}
+
+ptestesEarlyN <- plotExposureSimple(muts = testesEarlyMuts, opps = NULL)
+ptestesEarlyG <- plotExposureSimple(muts = testesEarlyMuts, opps = "human-genome")
+ptestesEarly <- plotExposureSimple(muts = testesEarlyMuts, opps = testesEarlyOpps)
+ptestesEarlyN
+
+ptestesEarly
+
+ptestesIntermediateN <- plotExposureSimple(muts = testesIntermediateMuts, opps = NULL)
+ptestesIntermediateG <- plotExposureSimple(muts = testesIntermediateMuts, opps = "human-genome")
+ptestesIntermediate <- plotExposureSimple(muts = testesIntermediateMuts, opps = testesIntermediateOpps)
+ptestesLateN <- plotExposureSimple(muts = testesLateMuts, opps = NULL)
+ptestesLateG <- plotExposureSimple(muts = testesLateMuts, opps = "human-genome")
+ptestesLate <- plotExposureSimple(muts = testesLateMuts, opps = testesLateOpps)
+
+pcolonEarlyN <- plotExposureSimple(muts = colonEarlyMuts, opps = NULL)
+pcolonEarly <- plotExposureSimple(muts = colonEarlyMuts, opps = colonEarlyOpps)
+pcolonIntermediateN <- plotExposureSimple(muts = colonIntermediateMuts, opps = NULL)
+pcolonIntermediate <- plotExposureSimple(muts = colonIntermediateMuts, opps = colonIntermediateOpps)
+pcolonLateN <- plotExposureSimple(muts = colonLateMuts, opps = NULL)
+pcolonLate <- plotExposureSimple(muts = colonLateMuts, opps = colonLateOpps)
+
+ptestesEarlyN
+ptestesEarlyG
+ptestesEarly
+ptestesIntermediateN
+ptestesIntermediateG
+ptestesIntermediate
+ptestesLateN
+ptestesLateG
+ptestesLate
+
+pcolonEarlyN
+pcolonEarly
+pcolonIntermediateN
+pcolonIntermediate 
+pcolonLateN
+pcolonLate
 ```
 
 
