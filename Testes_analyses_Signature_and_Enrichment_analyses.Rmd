@@ -231,31 +231,44 @@ condensed_surveyed_list <- rep(list(condensed_surveyed), length(condensedTissues
 ## Population 
 ```{r TumourDatasets}
 #Pop var 
-gnomadVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/PopulationVariants/gnomad.genomes.r2.1.1.snps.filtered.21.recode.vcf", "gnomad", ref_genome, check_alleles=T)
+gnomadVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/PopulationVariants/test_gnomad.5.vcf", "gnomad", ref_genome, check_alleles=T)
 
-yo = read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/PopulationVariants/gnomad.genomes.r2.1.1.snps.filtered.21.recode.vcf", col_names = F, comment = "#", col_types = 'cdcccdcc')
-#Temp fix to avoid multiallelic sites. Filter these out with vcftools next time
-yo <- yo %>% 
-  distinct(X1,X2, .keep_all = T)
-yo2 <- yo[1:1000,]
-read_vcfs_as_granges()
-gnomadTest <- GRanges(seqnames = "chr21", ranges = IRanges(start = yo2$X2, end = yo2$X2), seqinfo = triosVCF[[1]]@seqinfo, REF = DNAStringSet(yo2$X4), ALT = DNAStringSet(yo2$X5), FILTER = "PASS")
-gnomadVCF <- GRangesList(gnomadTest)
+#Testes by individual with genome coverage. Genome coverage calculated by merging bed files of each individual's samples
+testesIndivFiles <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_PID-Tissue/Normal", pattern = ".vcf.gz", full.names = TRUE)
+testesIndivSamples <-  str_remove(list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_PID-Tissue/Normal", pattern = ".vcf.gz"), ".vcf.gz")
+testesIndivVCF <- read_vcfs_as_granges(testesIndivFiles, testesIndivSamples, ref_genome, check_alleles=T)
+#Colon by individual with genome coverage. Genome coverage calculated by merging bed files of each individual's samples
+colonIndivFiles <- list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_PID-Tissue/Colon", pattern = ".vcf.gz", full.names = TRUE)
+colonIndivSamples <-  str_remove(list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Matched_WGS/Filtered_Final_variants/SNVs/VCFs_per_PID-Tissue/Colon", pattern = ".vcf.gz"), ".vcf.gz")
+colonIndivVCF <- read_vcfs_as_granges(colonIndivFiles, colonIndivSamples, ref_genome, check_alleles=T)
 
-condensedVCFs <- c(gnomadVCF)
-groupedVCFs <- c(gnomadVCF[[1]])
+#Trio Sample
+triosVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/Trio_data.vcf.gz", "Trio_data", ref_genome, check_alleles=T)
+#Trio Paternal
+triosPatVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/Maternal_Paternal/triosPaternal_hg19.vcf", "TrioPat_data", ref_genome, check_alleles=T)
+#Trio Maternal
+triosMatVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Trio_data/Maternal_Paternal/triosMaternal_hg19.vcf", "TrioMat_data", ref_genome, check_alleles=T)
 
-condensedTissues <- c("gnomad")
-condensedSource <- tibble(source = c(rep("gnomad",length(gnomadVCF[[1]]))))
-condensedVCFs <- c(gnomadVCF)
+#Lung Never-Smoker
+lungNormalVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Kenichi-Lung_data/Neversmoker_data.unique.vcf", "LungNormal", ref_genome, check_alleles=T)
+#Lung Ex-Smoker
+lungExSmokerVCF <- read_vcfs_as_granges("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Kenichi-Lung_data/Ex_smokers_data.unique.vcf", "LungExSmoker", ref_genome, check_alleles=T)
 
-#Surveyed Regions: Here just using full genomic coordinates for testing/simplicity. Extend to detailed surveyed regions later.
-chr21 <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/Trio_DNMs.callable.bed", col_names = F) %>% 
-  filter(X1 == "21")
-write_tsv(chr21, "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/chr21.bed", col_names = F)
-condensed_surveyed <- import("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/chr21.bed")
-seqlevelsStyle(condensed_surveyed) <- "UCSC"
-condensed_surveyed_list <- rep(list(condensed_surveyed), length(condensedTissues))
+# #Surveyed Regions
+# chr5 <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/Trio_DNMs.callable.bed", col_names = F) %>% 
+#    filter(X1 == "5")
+# write_tsv(chr5, "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/chr5.bed", col_names = F)
+chr5_surveyed <- import("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/chr5.bed")
+seqlevelsStyle(chr5_surveyed) <- "UCSC"
+full_surveyed <- import("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Surveyed_regions/Trio_DNMs.callable.bed")
+seqlevelsStyle(full_surveyed) <- "UCSC"
+load("testesIndivSurveyedList.RData")
+load("colonIndivSurveyedList.RData")
+
+condensedVCFs <- c(colonIndivVCF, lungExSmokerVCF, lungNormalVCF, testesIndivVCF, triosMatVCF, triosPatVCF, triosVCF, gnomadVCF)
+groupedVCFs <- c(colonIndivVCF[[1]], lungExSmokerVCF[[1]], lungNormalVCF[[1]], testesIndivVCF[[1]], triosMatVCF[[1]], triosPatVCF[[1]], triosVCF[[1]], gnomadVCF[[1]])
+condensedTissues <- c(rep("colonIndiv",length(colonIndivSamples)),"LungExSmoker","LungNormal",rep("testesIndiv",length(testesIndivSamples)), "TrioMat_DNMs", "TrioPat_DNMs", "Trio_DNMs", "gnomad")
+condensed_surveyed_list <- c(colonIndivSurveyedList, full_surveyed, full_surveyed, testesIndivSurveyedList, full_surveyed, full_surveyed, full_surveyed, chr5_surveyed)
 
 ```
 
@@ -773,11 +786,95 @@ testesScaled + colonScaled + lungNormalScaled + lungExsmokerScaled + plot_layout
 ```
 
 
+## Methylation Process Files
+```{r}
+methPath <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/"
+
+#Testes RRBS
+noMethTestis <- read_tsv("methylationTestis.bed", col_types = 'cccccccccccd') %>% 
+  filter(percentMeth == 0) %>% 
+  select(c(2:7))
+write_tsv(noMethTestis, paste0(methPath, "testesNoMeth.bed"), col_names = F)
+methTestis <- read_tsv("methylationTestis.bed", col_types = 'cccccccccccd') %>% 
+  filter(percentMeth > 0)%>% 
+  select(c(2:7))
+write_tsv(methTestis, paste0(methPath, "testesMeth.bed"), col_names = F)
+
+#Lung RRBS
+noMethLung <- read_tsv("lungRRBS1.bed", col_types = 'cccccccccccd') %>% 
+  filter(percentMeth == 0) %>% 
+  select(c(2:7))
+write_tsv(noMethLung, paste0(methPath, "lungNoMeth.bed"), col_names = F)
+methLung <- read_tsv("lungRRBS1.bed", col_types = 'cccccccccccd') %>% 
+  filter(percentMeth > 0)%>% 
+  select(c(2:7))
+write_tsv(methLung, paste0(methPath, "lungMeth.bed"), col_names = F)
+
+#Colon WGBS
+#awk '$10>2' ENCFF424XKF.bed > colonCov3.bed
+#awk '$11>0' colonCov3.bed | cut -f 1-6 > colonMeth_38.bed
+#awk '$11==0' colonCov3.bed | cut -f 1-6 > colonNoMeth_38.bed
+#liftOver /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/colonMeth_38.bed hg38ToHg19.over.chain.gz /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/colonMeth_37.bed /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/colonMeth_38_unmapped.bed
+
+# methColon <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/colonMeth_19.bed", col_names = F, col_types = 'ciiccc')
+# noMethColon <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/colonMeth_19.bed", col_names = F, col_types = 'ciiccc')
+
+```
+
 ## Methylation Enrichment
 ```{r}
-methyl <- read_tsv("methylationTestis.bed")
+# regions bed files
+meth_regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split", full.names = T)
+print(meth_regions_files)
+# 
+# # region bed files
+# meth_regions_list=list()
+# for(i in meth_regions_files){
+#   print(paste("Importing", i))
+#   meth_region <- import(i)
+#   ## Import the file using rtracklayer and use the UCSC naming standard
+#   seqlevelsStyle(meth_region) <- "UCSC"
+#   meth_regions_list[[i]] <- meth_region
+# }
+# 
+# names(meth_regions_list) = c("colonMeth", "colonNoMeth", "lungMeth", "lungNoMeth","testesMeth", "testesNoMeth")
+# save(meth_regions_list, file="meth_regions_list.RData")
 
-hist(methyl$percentMeth)
+load("meth_regions_list.RData")
+
+meth_dist = genomic_distribution(condensedVCFs, condensed_surveyed_list, meth_regions_list)
+meth_depl = enrichment_depletion_test(meth_dist, by = condensedTissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+meth_depl$region = factor(meth_depl$region, levels = c("colonMeth", "colonNoMeth", "lungMeth", "lungNoMeth","testesMeth", "testesNoMeth"))
+plot_enrichment_depletion_prop(meth_depl %>% filter(region %in%  c("colonMeth", "colonNoMeth")))
+plot_enrichment_depletion_prop(meth_depl %>% filter(region %in%  c("lungMeth", "lungNoMeth")))
+plot_enrichment_depletion_prop(meth_depl %>% filter(region %in%  c("testesMeth", "testesNoMeth")))
+
+#Fraction with any methylation
+
+methFraction0 <- meth_dist %>% 
+  filter(str_detect(region, "colon") & sample == "Colon" | str_detect(region, "lung") & sample == "LungNormal" | str_detect(region, "testes") & sample == "Testes" ) %>% 
+  mutate(methylation = c(T,F,T,F,T,F))
+methTotals <- methFraction0 %>% 
+  group_by(sample) %>% 
+  summarise(tot = sum(surveyed_region_length))
+
+methFraction <- methFraction0 %>% 
+  left_join(methFraction0 %>% group_by(sample) %>% summarise(tot = sum(surveyed_region_length)), by = "sample") %>% 
+  mutate(fraction = surveyed_region_length/tot) %>% 
+  mutate(obsExp = observed/expected)
+
+ggplot(methFraction, aes(x = fraction, y = obsExp)) + 
+  geom_point(aes(colour = sample, shape = methylation, size = 2)) + 
+  ylab("Obs/Exp") +
+  theme_minimal()
+
+ggplot(methFraction, aes(y = fraction, x = obsExp)) + 
+  geom_point(aes(colour = sample, shape = methylation, size = 2)) + 
+  xlab("Obs/Exp") +
+  xlim(0,NA) +
+  theme_minimal()
 ```
 
 
