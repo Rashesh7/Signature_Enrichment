@@ -1,5 +1,5 @@
 ---
-title: "Testes Signature Analyses"
+title: "Testes Enrichment Analyses"
 ---
 # Prep
 ## Specify paths
@@ -23,6 +23,7 @@ library(ref_genome, character.only = TRUE)
 library(lme4)
 library(broom)
 library(tidyverse)
+library(dndscv)
 select <- dplyr::select
 rename <- dplyr::rename
 summarize <- dplyr::summarize
@@ -207,7 +208,7 @@ load_callable <- function(dataset, preloaded = T) {
   }
   #gnomad callable regions
   if(dataset == "PopVars") {
-    pop_surveyed <- import("TODO")
+    pop_surveyed <- import(paste0(path, "surveyedRegions/PopVars/gnomadGenomesCallable.2.1.1.bed"))
     seqlevelsStyle(pop_surveyed) <- "UCSC"
     return(pop_surveyed)
   }
@@ -356,7 +357,7 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
-popVarsSurveyed <- load_callable("popVars")
+popVarsSurveyed <- load_callable("PopVars")
 testesSurveyed <- load_callable("Testes")
 triosSurveyed <- load_callable("generic")
 
@@ -388,7 +389,7 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 colonSurveyed <- load_callable("Colon")
 lungExSmokerSurveyed <- load_VCF("generic")
 lungNormalSurveyed <- load_VCF("generic")
-popVarsSurveyed <- load_callable("popVars")
+popVarsSurveyed <- load_callable("PopVars")
 testesSurveyed <- load_callable("Testes")
 triosSurveyed <- load_callable("generic")
 triosMatSurveyed <- load_VCF("generic")
@@ -449,13 +450,13 @@ p_corrected <- (0.05/length(unique(tissues)))
 ```
 
 ## e) POL mutants
-```{r extended}
+```{r pol}
 #Variants
 testesVCF <- load_VCF("Testes")
 polVCF <- load_VCF("POL")
 
 VCFs <- c(testesVCF, polVCF)
-tissues <- c("Testes", "POLE_Blood", "POLD1_Blood", "POLE_Sperm", "POLD1_Sperm")
+tissues <- c(rep("Testes",length(testesVCF)), "POLE_Blood", "POLD1_Blood", "POLE_Sperm", "POLD1_Sperm")
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
@@ -474,7 +475,7 @@ testesVCF <- load_VCF("Testes")
 tumourVCF <- load_VCF("Tolly_Tumour")
 
 VCFs <- c(testesVCF, tumourVCF)
-tissues <- c("Testes", "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Mixed","Tumour_Mixed","Tumour_PrePub", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Seminoma", "Tumour_Mixed", "Tumour_Mixed")
+tissues <- c(rep("Testes",length(testesVCF)), "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Mixed","Tumour_Mixed","Tumour_PrePub", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Seminoma", "Tumour_Mixed", "Tumour_Mixed")
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
@@ -490,7 +491,7 @@ p_corrected <- (0.05/length(unique(tissues)))
 ## 6 Mutation Type plots
 ```{r}
 #Single Nucleotide spectrum
-singleSpec <- plot_spectrum(mut_occurrences, by = tissues, CT = TRUE, legend = TRUE)
+singleSpec <- plot_spectrum(type_occurrences, by = tissues, CT = TRUE, legend = TRUE)
 singleSpec
 
 png(paste0(plotsPath, 'singleSpec.png'), height=5, width=8, units = "in", res = 300)
@@ -536,6 +537,7 @@ pRepStrand
 png(paste0(plotsPath, 'repStrandBias.png'), height=5, width=8, units = "in", res = 300)
 pRepStrand
 dev.off()
+
 ```
 
 ## Replication Timing
@@ -617,34 +619,6 @@ png(paste0(plotsPath, 'recombEnrich.png'), height=5, width=5, units = "in", res 
 recombEnrich
 dev.off()
 ```
-
-## Custom Hotspot
-```{r}
-strength = as.numeric(regions_list[[1]]$name)
-
-
-recombDist <- function(vcf, region, title) {
-  recombOvs<- as.data.frame(findOverlaps(vcf, region)) 
-  recombOvsDF <- tibble(pos = start(vcf[recombOvs$queryHits,]), start = start(region[recombOvs$subjectHits,])) 
-  dist <- recombOvsDF %>% 
-    mutate(mid = start + 5000) %>% 
-    mutate(distance = pos - mid) %>% 
-    ggplot(aes(x = distance)) +
-    geom_density(adjust = 1/2) +
-    ggtitle(title)
-  return(dist)
-}
-
-
-ptestesRecomb <- recombDist(testesVCF[[1]], regions_list[[1]], title = "Testes") 
-ptrioRecomb <- recombDist(triosVCF[[1]], regions_list[[1]], title = "Trios")
-ptrioPatRecomb <- recombDist(triosPatVCF[[1]], regions_list[[1]], title = "Trios Pat")
-ptrioMatRecomb <- recombDist(triosMatVCF[[1]], regions_list[[1]], title = "Trios Mat")
-
-ptestesRecomb + ptrioRecomb + ptrioPatRecomb + ptrioMatRecomb 
-ptestesRecomb2 + ptrioRecomb2 + ptrioPatRecomb2 + ptrioMatRecomb2
-```
-
 
 ## Genome Segments
 ```{r}
@@ -781,7 +755,7 @@ cosmic_signatures_v3_custom10 <- rbind(cosmic_signatures_v3, polSigs)
 
 getMutTable <- function(mutFolder, suffix) {
   files <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
-  samples <-  str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
+  samples <- str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
   VCF <- read_vcfs_as_granges(files, samples, ref_genome, check_alleles=T)
   muts <- t(mut_matrix(vcf_list = VCF, ref_genome))
   return(muts)
@@ -803,6 +777,7 @@ getOppTable <- function(mutFolder, suffix) {
 #Default sigs 1, 5 and 18 for testes and colon
 getExposureCustom <- function(mutFolder, suffix, adjust = F, header = "", sigChoice = c("SBS1", "SBS5", "SBS18")) {
   muts <- getMutTable(mutFolder, suffix = paste0(header, suffix, ".vcf"))
+  print(sum(muts))
   if (adjust == F) {
     sigs <- cosmic_signatures_v3_custom10
   }
@@ -816,10 +791,11 @@ getExposureCustom <- function(mutFolder, suffix, adjust = F, header = "", sigCho
   }
   selected_signatures <- sigs[rownames(sigs) %in% sigChoice,]
   fit <- fit_signatures(counts = muts, signatures = selected_signatures,
-                                   iter = 4000, 
-                                   warmup = 2000, 
-                                   chains = 1, 
-                                   seed = 1756)
+                        iter = 20000, 
+                        warmup = 10000, 
+                        model="poisson",
+                        chains = 2, 
+                        seed = 1756)
   exposures <- retrieve_pars(fit, par = "exposures") [[1]]
   return(exposures)
 }
@@ -868,8 +844,6 @@ pPolELate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".lateRep", adjust
 pPolDEarly <- getExposureCustom(mutFolder = "Sperm/", suffix = ".earlyRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
 pPolDIntermediate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".intermediateRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
 pPolDLate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".lateRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
-
-
 
 ```
 
@@ -966,6 +940,33 @@ png('plots/repTimeSigsTestesColon.png', height=5, width=7, units = "in", res = 3
 colonScaled + testesScaled + plot_layout(guides = 'collect')
 dev.off()
 
+```
+
+## Custom Hotspot
+```{r}
+strength = as.numeric(regions_list[[1]]$name)
+
+
+recombDist <- function(vcf, region, title) {
+  recombOvs<- as.data.frame(findOverlaps(vcf, region)) 
+  recombOvsDF <- tibble(pos = start(vcf[recombOvs$queryHits,]), start = start(region[recombOvs$subjectHits,])) 
+  dist <- recombOvsDF %>% 
+    mutate(mid = start + 5000) %>% 
+    mutate(distance = pos - mid) %>% 
+    ggplot(aes(x = distance)) +
+    geom_density(adjust = 1/2) +
+    ggtitle(title)
+  return(dist)
+}
+
+
+ptestesRecomb <- recombDist(testesVCF[[1]], regions_list[[1]], title = "Testes") 
+ptrioRecomb <- recombDist(triosVCF[[1]], regions_list[[1]], title = "Trios")
+ptrioPatRecomb <- recombDist(triosPatVCF[[1]], regions_list[[1]], title = "Trios Pat")
+ptrioMatRecomb <- recombDist(triosMatVCF[[1]], regions_list[[1]], title = "Trios Mat")
+
+ptestesRecomb + ptrioRecomb + ptrioPatRecomb + ptrioMatRecomb 
+ptestesRecomb2 + ptrioRecomb2 + ptrioPatRecomb2 + ptrioMatRecomb2
 ```
 
 
@@ -1083,7 +1084,7 @@ dev.off()
 ## Expression Model
 ```{r glmm, fig.height=3, fig.width=5}
 get_gene_df <- function() {
-  biomart <- read_tsv("/Volumes/GoogleDrive/My Drive/Testes/gene_prot_coords.tsv", col_types = 'ccciiiii') %>% 
+  biomart <- read_tsv(paste0(path, "expression/gene_prot_coords.tsv"), col_types = 'ccciiiii') %>% 
     drop_na(prot) %>% 
     dplyr::rename(prot_id = prot, gene_id = gene)
   
@@ -1104,7 +1105,7 @@ rm(RefCDS, gr_genes)
 gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end))
 seqlevelsStyle(gene_gr) <- "UCSC"
 
-ovs<- as.data.frame(findOverlaps(groupedVCFs,gene_gr))
+ovs<- as.data.frame(findOverlaps(VCFs,gene_gr))
 overlapHits <- cbind(condensedSource[ovs$queryHits,],gene_df[ovs$subjectHits,]) %>% 
   group_by(gene_name, source) %>% 
   dplyr::summarise(count = n()) %>% 
@@ -1117,7 +1118,7 @@ for(tissue in tissues)(mutsDF0 <- bind_rows(mutsDF0, gene_df %>% mutate(source =
 fixDatesTable <- tibble(gene_name = c("01-Dec","01-Sep","02-Sep","03-Mar","03-Sep","04-Mar","04-Sep","05-Mar","05-Sep","06-Mar","06-Sep","07-Mar","07-Sep","08-Mar","08-Sep","09-Mar","09-Sep","10-Mar","10-Sep","11-Mar","11-Sep","12-Sep","14-Sep"),
                         fix = c("DEC1","SEPT1","SEPT2","MARCH3","SEPT3","MARCH4","SEPT4","MARCH5","SEPT5","MARCH6","SEPT6","MARCH7","SEPT7","MARCH8","SEPT8","MARCH9","SEPT9","MARCH10","SEPT10","MARCH11","SEPT11","SEPT12","SEPT14"))
 
-germCellExpr <- read_csv("/Volumes/GoogleDrive/My Drive/Testes/exprFiles/expr_level_groups.csv", col_types = cols(.default = "c")) %>% 
+germCellExpr <- read_csv(paste0(path, "expression/expr_level_groups.csv"), col_types = cols(.default = "c")) %>% 
   pivot_longer(1:9, names_to = "group", values_to = "gene_name") %>% 
   drop_na() %>% 
   left_join(fixDatesTable, by ="gene_name") %>% 
@@ -1166,18 +1167,7 @@ glmmTissues <- c("Testes", "Trio_DNMs")
 glmmPlot <- plot_glmm(mutTable = mutsDF, dataSources = glmmTissues, exprGroups = c("Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"), tests = 8, formula = "count ~ group + offset(log(length)) + offset(log(gc_content)) + (1|gene_name)")
 glmmPlot
 
-pdf('plots/glmmExpression.pdf', height=5, width=10)
+png(paste0(plotsPath, 'glmmExpression.png'), height=5, width=10, units = "in", res = 300)
 glmmPlot
 dev.off()
-
-png('plots/glmmExpression.png', height=5, width=10, units = "in", res = 300)
-glmmPlot
-dev.off()
-```
-
-
-
-#RemovedDatasets/Code
-```{r oldCode}
-
 ```
