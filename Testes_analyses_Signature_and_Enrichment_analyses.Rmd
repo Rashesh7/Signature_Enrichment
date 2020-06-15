@@ -5,7 +5,7 @@ title: "Testes Enrichment Analyses"
 ## Specify paths
 ```{r parameters}
 path <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/pipelineInput/"
-plotsPath <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/pipelineInput/plots/plots_Default"
+plotsPath <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/pipelineInput/plots/plots_Default/"
 ```
 
 ## Load Libraries
@@ -359,7 +359,7 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 colonSurveyed <- load_callable("Colon")
 popVarsSurveyed <- load_callable("PopVars")
 testesSurveyed <- load_callable("Testes")
-triosSurveyed <- load_callable("generic")
+triosSurveyed <- load_callable("PopVars")
 
 surveyed_list <- c(colonSurveyed, popVarsSurveyed, testesSurveyed, triosSurveyed)
 
@@ -387,13 +387,13 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
-lungExSmokerSurveyed <- load_VCF("generic")
-lungNormalSurveyed <- load_VCF("generic")
+lungExSmokerSurveyed <- load_callable("generic")
+lungNormalSurveyed <- load_callable("generic")
 popVarsSurveyed <- load_callable("PopVars")
 testesSurveyed <- load_callable("Testes")
-triosSurveyed <- load_callable("generic")
-triosMatSurveyed <- load_VCF("generic")
-triosPatSurveyed <- load_VCF("generic")
+triosSurveyed <- load_callable("PopVars")
+triosMatSurveyed <- load_callable("PopVars")
+triosPatSurveyed <- load_callable("PopVars")
 surveyed_list <- c(colonSurveyed, lungExSmokerSurveyed, lungNormalSurveyed, popVarsSurveyed, testesSurveyed, triosSurveyed, triosMatSurveyed, triosPatSurveyed)
 
 #Corrected pvalue threshold by # of tissues
@@ -413,8 +413,15 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
 testesSurveyed <- load_callable("Testes")
-triosSurveyed <- load_callable("generic")
+triosSurveyed <- load_callable("PopVars")
 surveyed_list <- c(colonSurveyed, testesSurveyed, triosSurveyed)
+
+yo = findOverlaps(lungNormalVCF[[1]], triosSurveyed)
+yo2 = findOverlaps(lungNormalVCF[[1]], triosMatSurveyed)
+
+length(yo)/length(yo2)
+
+sum(colonSurveyed[[4]]@ranges@width)/sum(triosMatSurveyed@ranges@width)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -437,12 +444,12 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
-lungExSmokerSurveyed <- load_VCF("generic")
-lungNormalSurveyed <- load_VCF("generic")
+lungExSmokerSurveyed <- load_callable("generic")
+lungNormalSurveyed <- load_callable("generic")
 testesSurveyed <- load_callable("Testes")
-triosSurveyed <- load_callable("generic")
-triosMatSurveyed <- load_VCF("generic")
-triosPatSurveyed <- load_VCF("generic")
+triosSurveyed <- load_callable("PopVars")
+triosMatSurveyed <- load_callable("PopVars")
+triosPatSurveyed <- load_callable("PopVars")
 surveyed_list <- c(colonSurveyed, lungExSmokerSurveyed, lungNormalSurveyed, testesSurveyed, triosSurveyed, triosMatSurveyed, triosPatSurveyed)
 
 #Corrected pvalue threshold by # of tissues
@@ -564,12 +571,96 @@ repTiming_dist = genomic_distribution(VCFs, surveyed_list, regions_list)
 repTiming_depl = enrichment_depletion_test(repTiming_dist, by = tissues) %>% 
   #Multiple test correction
   mutate(significant = if_else(pval < p_corrected, "*", ""))
+write_tsv(repTiming_depl, path = paste0(plotsPath, 'repTimingBias.tsv'))
+
 repTiming_depl$region = factor(repTiming_depl$region, levels = c("Early", "Intermediate", "Late"))
 pRepTiming <- plot_enrichment_depletion_prop(repTiming_depl)
 pRepTiming
 
 png(paste0(plotsPath, 'repTimingBias.png'), height=5, width=8, units = "in", res = 300)
 pRepTiming
+dev.off()
+```
+
+## Alt Replication Timing
+```{r}
+# Use different cell lines for comparison
+H9es1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeH9es.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
+  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
+  mutate(repTime = as.numeric(repTime))
+hist(H9es1mb$repTime)
+
+LCL1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeLCL.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
+  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
+  mutate(repTime = as.numeric(repTime))
+hist(H9es1mb$repTime)
+
+#Split into 3 roughly equal groups
+write_tsv(H9es1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9early.bed"), col_names = F)
+write_tsv(H9es1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9intermediate.bed"), col_names = F)
+write_tsv(H9es1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9late.bed"), col_names = F)
+
+write_tsv(LCL1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLearly.bed"), col_names = F)
+write_tsv(LCL1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLintermediate.bed"), col_names = F)
+write_tsv(LCL1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLlate.bed"), col_names = F)
+
+
+H9_regions_files = list.files(paste0(path,"mutPatternsRegions/H9repTiming"), full.names = T)
+print(H9_regions_files)
+
+# region bed files
+H9_regions_list=list()
+for(i in H9_regions_files){
+  region <- import(i)
+  ## Import the file using rtracklayer and use the UCSC naming standard
+  seqlevelsStyle(region) <- "UCSC"
+  H9_regions_list[[i]] <- region
+}
+
+names(H9_regions_list) = c("Early", "Intermediate", "Late")
+
+# Find overlaps between mutations and genomic regions
+H9_repTiming_dist = genomic_distribution(VCFs, surveyed_list, H9_regions_list)
+H9_repTiming_depl = enrichment_depletion_test(H9_repTiming_dist, by = tissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+write_tsv(H9_repTiming_depl, path = paste0(plotsPath, 'H9repTimingBias.tsv'))
+H9_repTiming_depl$region = factor(H9_repTiming_depl$region, levels = c("Early", "Intermediate", "Late"))
+H9_pRepTiming <- plot_enrichment_depletion_prop(H9_repTiming_depl)
+H9_pRepTiming
+
+png(paste0(plotsPath, 'H9repTimingBias.png'), height=5, width=8, units = "in", res = 300)
+H9_pRepTiming
+dev.off()
+
+
+
+LCL_regions_files = list.files(paste0(path,"mutPatternsRegions/LCLrepTiming"), full.names = T)
+print(LCL_regions_files)
+
+# region bed files
+LCL_regions_list=list()
+for(i in LCL_regions_files){
+  region <- import(i)
+  ## Import the file using rtracklayer and use the UCSC naming standard
+  seqlevelsStyle(region) <- "UCSC"
+  LCL_regions_list[[i]] <- region
+}
+
+names(LCL_regions_list) = c("Early", "Intermediate", "Late")
+
+# Find overlaps between mutations and genomic regions
+LCL_repTiming_dist = genomic_distribution(VCFs, surveyed_list, LCL_regions_list)
+LCL_repTiming_depl = enrichment_depletion_test(LCL_repTiming_dist, by = tissues) %>% 
+  #Multiple test correction
+  mutate(significant = if_else(pval < p_corrected, "*", ""))
+write_tsv(LCL_repTiming_depl, path = paste0(plotsPath, 'LCLrepTimingBias.tsv'))
+LCL_repTiming_depl$region = factor(LCL_repTiming_depl$region, levels = c("Early", "Intermediate", "Late"))
+LCL_pRepTiming <- plot_enrichment_depletion_prop(LCL_repTiming_depl)
+LCL_pRepTiming
+
+png(paste0(plotsPath, 'LCLrepTimingBias.png'), height=5, width=8, units = "in", res = 300)
+LCL_pRepTiming
 dev.off()
 ```
 
@@ -622,7 +713,7 @@ dev.off()
 
 ## Genome Segments
 ```{r}
-load("segments_regions_list.RData")
+load(paste0(path, "mutPatternsRegions/segments_regions_list.RData"))
 
 # Find overlaps between mutations and genomic regions
 segments_dist = genomic_distribution(VCFs, surveyed_list, segments_regions_list)
