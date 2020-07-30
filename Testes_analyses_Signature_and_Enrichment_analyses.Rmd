@@ -4,13 +4,19 @@ title: "Testes Enrichment Analyses"
 # Prep
 ## Specify paths
 ```{r parameters}
-path <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/pipelineInput/"
-plotsPath <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/pipelineInput/plots/plots_Default/"
+#All input files on the farm
+path <- "/Users/mn7/volumes/mn7_lustre/pipelineInput/"
+#Local output
+plotsPath <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enrichment/plots/"
+#Farm output
+#plotsPath <- "/Users/mn7/volumes/mn7_lustre/pipelineInput/plots/testisIndivJun26_20/"
+
 ```
 
 ## Load Libraries
 ```{r libraries}
 library(reshape2)
+library(Rsamtools)
 library(Repitools)
 library(plyr)
 library(sigfit)
@@ -24,9 +30,11 @@ library(lme4)
 library(broom)
 library(tidyverse)
 library(dndscv)
+library(gtools)
 select <- dplyr::select
 rename <- dplyr::rename
 summarize <- dplyr::summarize
+slice <- dplyr::slice
 options(scipen = 999)
 
 ```
@@ -38,37 +46,6 @@ options(scipen = 999)
 *** Save lines commented out to prevent accidental overwrite ***
 
 ```{r mutPatternRegions, eval=FALSE}
-
-# Replication strand. Method from Harald(TensorSignatures)
-repTimeGm12878 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq//wgEncodeUwRepliSeqGm12878WaveSignalRep1.bigWig", format="BigWig")
-repTimeK569 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqK562WaveSignalRep1.bigWig", format="BigWig")
-repTimeHela <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHelas3WaveSignalRep1.bigWig", format="BigWig")
-repTimeHuvec <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHuvecWaveSignalRep1.bigWig", format="BigWig")
-repTimeHepg2 <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwRepliSeq/wgEncodeUwRepliSeqHepg2WaveSignalRep1.bigWig", format="BigWig")
-repTime <- granges(repTimeGm12878)
-mcols(repTime) <- DataFrame(mg12878=repTimeGm12878$score, hela=repTimeHela$score, k562=repTimeK569$score, huvec=repTimeHuvec$score, hepg2=repTimeHepg2$score)
-ndiff <- function(x) (c(NA,x[-length(x)]) - c(x[-1],NA))
-t <- sapply(mcols(repTime), ndiff)
-m <- rowMeans(t)
-s <- rowMeans(sqrt((t-m)^2))
-table(abs(m)-2*s > 0)
-
-repStrand <- granges(repTime)
-strand(repStrand)[which(m<0)] <- "+"
-strand(repStrand)[which(m>0)] <- "-"
-strand(repStrand)[which(abs(m)-2*s < 0)] <- "*"
-seqlevels(repStrand) <- sub("chr","", seqlevels(repStrand))
-
-seqlevelsStyle(repStrand) <- "UCSC"
-Leading_strand <- repStrand[strand(repStrand) == "+"]
-Lagging_strand <- repStrand[strand(repStrand) == "-"]
-Unassigned_strand <- repStrand[strand(repStrand) == "*"]
-
-replicationDirection_list <- GRangesList(Leading_strand, Lagging_strand, Unassigned_strand)
-names(replicationDirection_list) <- c("Leading", "Lagging", "Unassigned")
-
-#save(replicationDirection_list, file=paste0(path,"mutPatternsRegions/replicationDirection_list.RData"))
-
 # Misc regions
 misc_regions_files = list.files(paste0(path,"mutPatternsRegions/genomic_regions"), full.names = T)
 print(misc_regions_files)
@@ -116,6 +93,26 @@ for(i in segments_regions_files){
 
 names(segments_regions_list) = c("TSS","PF","E","WE","CTCF","T","R")
 #save(segments_regions_list, file=paste0(path,"mutPatternsRegions/segments_regions_list.RData"))
+
+#Alt reptiming
+H9es1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeH9es.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
+  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
+  mutate(repTime = as.numeric(repTime))
+hist(H9es1mb$repTime)
+
+LCL1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeLCL.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
+  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
+  mutate(repTime = as.numeric(repTime))
+hist(H9es1mb$repTime)
+
+#Split into 3 roughly equal groups
+write_tsv(H9es1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9early.bed"), col_names = F)
+write_tsv(H9es1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9intermediate.bed"), col_names = F)
+write_tsv(H9es1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9late.bed"), col_names = F)
+
+write_tsv(LCL1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLearly.bed"), col_names = F)
+write_tsv(LCL1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLintermediate.bed"), col_names = F)
+write_tsv(LCL1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLlate.bed"), col_names = F)
 ```
 
 
@@ -138,6 +135,13 @@ load_VCF <- function(dataset) {
     testesIndivVCF <- read_vcfs_as_granges(testesIndivFiles, testesIndivSamples, ref_genome, check_alleles=T)
     return(testesIndivVCF)
   }
+  #Benign Testes by individual
+  if(dataset == "TestesBenign") {
+    benignIndivFiles <- list.files(paste0(path, "variantVCFs/TestesBenign"), pattern = ".vcf.gz", full.names = TRUE)
+    benignIndivSamples <-  str_remove(list.files(paste0(path, "variantVCFs/TestesBenign"), pattern = ".vcf.gz"), ".vcf.gz")
+    benignIndivVCF <- read_vcfs_as_granges(benignIndivFiles, benignIndivSamples, ref_genome, check_alleles=T)
+    return(benignIndivVCF)
+  }
   #Colon by individual
   if(dataset == "Colon") {
     colonIndivFiles <- list.files(paste0(path, "variantVCFs/Colon"), pattern = ".vcf.gz", full.names = TRUE)
@@ -147,7 +151,7 @@ load_VCF <- function(dataset) {
   }
   #Trios from DeCode
   if(dataset == "Trios") {
-    triosVCF <- read_vcfs_as_granges(paste0(path, "variantVCFs/Trios/Trio_data.vcf.gz"), "Trio_data", ref_genome, check_alleles=T)
+    triosVCF <- read_vcfs_as_granges(paste0(path, "variantVCFs/Trios/trios_decode.vcf"), "Trio_data", ref_genome, check_alleles=T)
     return(triosVCF)
   }
   #Trios paternally phased
@@ -184,9 +188,16 @@ load_VCF <- function(dataset) {
     botseqIndivVCF <- read_vcfs_as_granges(botseqIndivFiles, botseqIndivSamples, ref_genome, check_alleles=T)
     return(botseqIndivVCF)
   }
+  #PanBody muts
+  if(dataset == "PanBody") {
+    panBodyFiles <- list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz" , full.names = TRUE)
+    panBodySamples <- str_remove(list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz"), ".vcf.gz")
+    panBodyVCF <- read_vcfs_as_granges(panBodyFiles, panBodySamples, ref_genome, check_alleles=T)
+    return(panBodyVCF)
+  }
   #Germline Tumours
   if(dataset == "Tolly_Tumour") {
-    tumourIndivFiles <- list.files(paste0(path, "variantVCFs/Tolly_Tumour"), full.names = TRUE)
+    tumourIndivFiles <- list.files(paste0(path, "variantVCFs/Tolly_Tumour"), pattern = ".vcf.gz", full.names = TRUE)
     tumourIndivSamples <- str_remove(list.files(paste0(path, "variantVCFs/Tolly_Tumour"), pattern = ".vcf.gz"), ".vcf.gz")
     tumourIndivVCF <- read_vcfs_as_granges(tumourIndivFiles ,tumourIndivSamples, ref_genome, check_alleles=T)
     return(tumourIndivVCF)
@@ -230,6 +241,26 @@ load_callable <- function(dataset, preloaded = T) {
       }
       save(testesIndivSurveyedList, file= paste0(path,"surveyedRegions/TestesNormal/testesIndivSurveyedList.RData"))
       return(testesIndivSurveyedList)
+    }
+  }
+  #Testes Benign: Genome coverage calculated by merging callable region bed files of each individual's samples
+  if(dataset == "TestesBenign") {
+    if(preloaded) {
+      load(paste0(path, "surveyedRegions/TestesBenign/testesBenignSurveyedList.RData"))
+      return(testesBenignSurveyedList)
+    } 
+    else {
+      testesBenignSamples <- list.files(paste0(path, "surveyedRegions/TestesBenign/"), pattern = ".sorted.merged.bed")
+      testesBenignSurveyedList <- vector(mode = "list")
+      for(i in testesBenignSamples){
+        print(paste("Reading", i))
+        surveyed <- import(paste0(path, "surveyedRegions/TestesBenign/",i))
+        ## Import the file using rtracklayer and use the UCSC naming standard
+        seqlevelsStyle(surveyed) <- "UCSC"
+        testesBenignSurveyedList[[i]] <- surveyed
+      }
+      save(testesBenignSurveyedList, file= paste0(path,"surveyedRegions/TestesBenign/testesBenignSurveyedList.RData"))
+      return(testesBenignSurveyedList)
     }
   }
   #Colon: Genome coverage calculated by merging callable region bed files of each individual's samples
@@ -294,8 +325,84 @@ load_callable <- function(dataset, preloaded = T) {
       return(botseqPOLsurveyedList)
     }
   }
+  #PanBody: Callable regions per sample
+  if(dataset == "PanBody") {
+    if(preloaded) {
+      load(paste0(path,"surveyedRegions/PanBody/PanBodySurveyedList.RData"))
+      return(PanBodySurveyedList)
+    } 
+    else {
+      PanBodySamples <- list.files(paste0(path, "surveyedRegions/PanBody/"), pattern = ".sorted.merged.bed")
+      PanBodySurveyedList <- vector(mode = "list")
+      for(i in PanBodySamples){
+        print(paste("Reading", i))
+        surveyed <- import(paste0(path, "surveyedRegions/PanBody/",i))
+        surveyed <- keepStandardChromosomes(surveyed, pruning.mode = "coarse")
+        surveyed <- dropSeqlevels(surveyed, "chrM", pruning.mode="coarse")
+        ## Import the file using rtracklayer and use the UCSC naming standard
+        seqlevelsStyle(surveyed) <- "UCSC"
+        PanBodySurveyedList[[i]] <- surveyed
+      }
+      save(PanBodySurveyedList, file=paste0(path,"surveyedRegions/PanBody/PanBodySurveyedList.RData"))
+      return(PanBodySurveyedList)
+    }
+  }
 }
 ```
+
+## Load TriRate List
+```{r triRateCalc}
+
+loadTriRate <- function(vcf_list, surveyed_list, tissues) {
+  triRateDF <- tibble()
+  for(tissue in unique(tissues)) {
+    #Subset vcfs by tissue
+    vcfsT <- vcf_list[tissues == tissue]
+    #Get total muts for tissue
+    muts0 <- mut_matrix(vcfsT, ref_genome)
+    muts <- as_tibble(muts0) %>% 
+      mutate(mutType = rownames(muts0)) %>% 
+      rowwise() %>%
+      mutate(totMuts = sum(c_across(where(is.numeric)))) %>% 
+      mutate(context = paste0(str_sub(mutType,1,1),str_sub(mutType,3,3),str_sub(mutType,7,7))) %>% 
+      group_by(context) %>% 
+      summarise(count = sum(totMuts), .groups = "drop")
+      
+    #Get mean opportunities for tissue
+    surveyedT <- surveyed_list[tissues == tissue]
+    for(i in 1:length(surveyedT)) {
+      sequences <- getSeq(BSgenome.Hsapiens.UCSC.hg19, surveyedT[[i]])
+      #Count trinuc freq
+      tri_freqs <- trinucleotideFrequency(sequences)
+      complement = vector()
+      complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";	
+      tri_freqs_summary <- as.tibble(tri_freqs) %>% 
+        summarise(across(.cols = everything(), sum)) %>% 
+        pivot_longer(cols = everything(), names_to = "context0", values_to = "count") %>% 
+        #Convert to pyr reference
+        mutate(context = ifelse(str_sub(context0,2,2) %in% c("C", "T"), context0, paste0(complement[str_sub(context0, 3,3)], complement[str_sub(context0, 2,2)], complement[str_sub(context0, 1,1)]))) %>% 
+        group_by(context) %>% 
+        summarise(count = sum(count), .groups = "drop")
+      colnames(tri_freqs_summary) <- c("context", paste0("opps_", names(surveyedT[i])))
+      muts <- muts %>% 
+        left_join(tri_freqs_summary, by = "context")
+    }
+    freqDF <- muts %>% 
+      rowwise() %>%
+      mutate(meanOpps = mean(c_across(cols = starts_with("opps_")))) %>% 
+      mutate(rate = count/meanOpps) %>% 
+      mutate(rate = rate/sum(lengths(vcfsT))) %>% 
+      mutate(tissue = tissue) %>% 
+      select(context, tissue, rate)
+    triRateDF <- triRateDF %>% 
+      bind_rows(freqDF)
+  }
+  return(triRateDF)
+}
+
+
+```
+
 
 ## Custom Plotting
 ```{r customMPfxn}
@@ -332,6 +439,25 @@ plot_enrichment_depletion_prop <- function (df) {
 
 ```
 
+## Generate CpG vcf subsets
+```{r cpgVCFs}
+#Edit MutationalPatterns mut_type_occurrences function
+get_CpG_vcfs <- function (vcf_list, ref_genome) {
+  cpg_vcf_list <- list()
+    for (i in 1:length(vcf_list)) {
+        vcf <- vcf_list[[i]]
+        df <- tibble(types = mut_type(vcf),
+                    context = type_context(vcf, ref_genome)[[2]]) %>% 
+          mutate(CT_at_CpG = if_else(types == "C>T" & context %in% c("ACG", "CCG", "TCG", "GCG"), T, F))
+        cpgVCF <- vcf[df$CT_at_CpG]
+        cpg_vcf_list[[i]] <- cpgVCF
+    }
+  cpg_vcfs <- GRangesList(cpg_vcf_list)
+  names(cpg_vcfs) <- names(vcf_list)
+  return(cpg_vcfs)
+}
+```
+
 
 # Specify Datasets
 Select ONE of the preset groupings (or create custom set):
@@ -353,6 +479,8 @@ triosVCF <- load_VCF("Trios")
 
 VCFs <- c(colonVCF, popVarsVCF, testesVCF, triosVCF)
 tissues <- c(rep("Colon",length(colonVCF)), "PopVars", rep("Testes",length(testesVCF)), "Trio_DNMs")
+tissuesByVar <- c(rep("Colon",length(unlist(colonVCF))), rep("PopVars", length(unlist(popVarsVCF))), rep("Testes",length(unlist(testesVCF))), rep("Trio_DNMs", length(unlist(triosVCF))))
+
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
@@ -408,6 +536,7 @@ testesVCF <- load_VCF("Testes")
 triosVCF <- load_VCF("Trios")
 VCFs <- c(colonVCF, testesVCF, triosVCF)
 tissues <- c(rep("Colon",length(colonVCF)),rep("Testes",length(testesVCF)),"Trio_DNMs")
+tissuesByVar <- c(rep("Colon",length(unlist(colonVCF))),rep("Testes",length(unlist(testesVCF))), rep("Trio_DNMs", length(unlist(triosVCF))))
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
@@ -416,12 +545,8 @@ testesSurveyed <- load_callable("Testes")
 triosSurveyed <- load_callable("PopVars")
 surveyed_list <- c(colonSurveyed, testesSurveyed, triosSurveyed)
 
-yo = findOverlaps(lungNormalVCF[[1]], triosSurveyed)
-yo2 = findOverlaps(lungNormalVCF[[1]], triosMatSurveyed)
-
-length(yo)/length(yo2)
-
-sum(colonSurveyed[[4]]@ranges@width)/sum(triosMatSurveyed@ranges@width)
+#Tri Rate Tables
+triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -475,7 +600,87 @@ surveyed_list <- c(testesSurveyed, polSurveyed)
 p_corrected <- (0.05/length(unique(tissues)))
 ```
 
-## f) Tolly Tumour 
+## f) Pan Body
+```{r Pan Body}
+#Variants
+testesVCF <- load_VCF("Testes")
+colonVCF <- load_VCF("Colon")
+panBodyVCF <- load_VCF("PanBody")
+
+VCFs <- c(testesVCF, colonVCF, panBodyVCF)
+
+panBodyTissues <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz"), ".vcf.gz"), 9)
+
+tissues <- c(rep("testis",length(testesVCF)), rep("colon",length(colonVCF)), panBodyTissues)
+tissuesByVar <- c(rep("testis",length(unlist(testesVCF))), rep("colon",length(unlist(colonVCF))), rep(panBodyTissues, times = lengths(panBodyVCF)))
+type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
+
+#Surveyed Regions
+testesSurveyed <- load_callable("Testes")
+colonSurveyed <- load_callable("Colon")
+panBodySurveyed <- load_callable("PanBody")
+
+surveyed_list <- c(testesSurveyed, colonSurveyed, panBodySurveyed)
+
+#Tri Rate Tables
+triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
+
+
+#Corrected pvalue threshold by # of tissues
+p_corrected <- (0.05/length(unique(tissues)))
+
+
+# panBodyCallable <- list.files(path = paste0(path, "surveyedRegions/PanBody"), pattern = ".callable.subtracted_ignored_regions.bed")
+# 
+# panBodyKey <- read_tsv(paste0(path, "PanBodyKey.txt"), comment = "#") %>%
+#   mutate(header = str_c(DonorID, TissueType1, sep = "_"))  %>%
+#   arrange(SampleID) %>%
+#   mutate(callableFile = panBodyCallable) %>%
+#   select(header, SampleID, callableFile)
+# 
+# file.rename(list.files(path = paste0(path, "surveyedRegions/PanBody"), pattern = ".callable.subtracted_ignored_regions.bed", full.names = T), paste0(path, "surveyedRegions/PanBody/", panBodyKey$header, ".", panBodyKey$SampleID, ".callable.bed"))
+# 
+# for (tissue in dir(path = paste0(path, "variantVCFs/PanBody"))){
+#   PIDs <- str_remove(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz"), ".vcf.gz")
+#   file.rename(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz", full.names = T), paste0(path, "variantVCFs/", PIDs, "_", tissue, ".vcf.gz"))
+# }
+# 
+# list.files(path = paste0(path, "variantVCFs/PanBody/"), pattern = ".vcf.gz")
+# list.files(path = paste0(path, "surveyedRegions/PanBody/"), pattern = ".bed")
+
+```
+
+## g) Testes by Indiv
+```{r testesIndiv}
+## f) Pan Body
+#Variants
+testesVCF <- load_VCF("Testes")
+testesBenignVCF <- load_VCF("TestesBenign")
+panBodyVCF <- load_VCF("PanBody")
+
+VCFs <- c(testesVCF, testesBenignVCF, panBodyVCF[27:28])
+
+testesIndivTissues <-  str_c("Norm_", str_remove(list.files(paste0(path, "variantVCFs/TestesNormal"), pattern = ".vcf.gz"), ".vcf.gz"))
+testesBenignTissues <-  str_c("Benign_", str_remove(list.files(paste0(path, "variantVCFs/TestesBenign"), pattern = ".vcf.gz"), ".vcf.gz"))
+panBodyTissues <- str_remove(list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf"), ".vcf")
+tissues <- c(testesIndivTissues, testesBenignTissues, panBodyTissues[27:28])
+type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
+
+#Surveyed Regions
+testesSurveyed <- load_callable("Testes")
+testesBenignSurveyed <- load_callable("TestesBenign")
+panBodySurveyed <- vector(mode = "list")
+for (i in 1:length(panBodyVCF)) {
+  panBodySurveyed[[i]] <- testesSurveyed[[1]]
+}
+
+surveyed_list <- c(testesSurveyed, testesBenignSurveyed, panBodySurveyed[27:28])
+
+#Corrected pvalue threshold by # of tissues
+p_corrected <- (0.05/length(unique(tissues)))
+```
+
+## h) Tolly Tumour 
 ```{r TumourDatasets}
 #Variants
 testesVCF <- load_VCF("Testes")
@@ -487,16 +692,279 @@ type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 testesSurveyed <- load_callable("Testes")
-tumourSurveyed <- load_callable("generic")
-surveyed_list <- c(testesSurveyed, rep(tumourSurveyed, length(tumourVCF)))
+tumourSurveyed <- vector(mode = "list")
+for (i in 1:length(tumourVCF)) {
+  tumourSurveyed[[i]] <- testesSurveyed[[1]]
+}
+surveyed_list <- c(testesSurveyed, tumourSurveyed)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
 ```
 
+# TriNuc Adjustment
+## TriNuc Counter script
+```{r trinucCounter, eval = FALSE}
+library(Biostrings)
+library(seqinr)
+library(GenomicRanges)
+library(Rsamtools)
+library(MASS)
+
+args       = commandArgs(TRUE) 
+unmasked_genome_file = NULL
+genome_file          = args[1]     # "/nfs/cancer_ref01/Homo_sapiens/37/genome.fa"
+out_name             = args[2]     # "human_strict"
+if(length(args)==3) {
+	unmasked_genome_file = args[3] # "/lustre/scratch119/casm/team268im/fa8/BOTSEQ/MASKS/all-norm-strict.inverse.bed"
+}
+###########################################################################################
+# Load sequences, either for regions or the entire genome
+if(!is.null(unmasked_genome_file)) {
+	cat("Loading regions...\n")
+	regions = read.table(unmasked_genome_file,header=F,sep="\t",colClasses=c("character","numeric","numeric"))
+	colnames(regions) <- c("chr","start","end")
+	regions$start = regions$start+1 # make it 1-based
+	
+	cat("Extracting sequences...\n")
+	sequences = as.vector(scanFa(genome_file, GRanges(regions$chr, IRanges(regions$start, regions$end))))
+} else {
+	cat("Loading entire genome...\n")
+	sequences = as.vector(scanFa(genome_file))
+}
+	
+###########################################################################################
+# trinucleotideFrequency
+cat("Calculating trinucleotide frequencies...\n")
+tri_freqs <- t(sapply(sequences,function(x) trinucleotideFrequency(DNAString(x))))
+
+tri_freqs_summary <- apply(tri_freqs,2,sum)
+write.table(tri_freqs_summary,file=paste(out_name,".tri_freqs.tsv",sep=""),sep="\t",quote=F,col.names=F)
+
+###########################################################################################
+# Translate to pyr reference:
+complement = vector()
+complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";		
+# Define pyr_trinucs
+pyr = c("C","T")
+pyr2pur = vector()
+all = c("A","C","G","T")
+for(a in all) {
+	for(p in pyr) {
+		for(b in all) {
+			pyr2pur[paste(a,p,b,sep="")] = paste(complement[b],complement[p],complement[a],sep="")
+		}
+	}
+}
+tri_freqs_summary_pyr = vector()
+for(tri_pyr in names(pyr2pur)) {
+	tri_freqs_summary_pyr[tri_pyr] = tri_freqs_summary[tri_pyr] + tri_freqs_summary[pyr2pur[tri_pyr]]
+}
+write.table(tri_freqs_summary_pyr,file=paste(out_name,".tri_freqs.pyr.tsv",sep=""),sep="\t",quote=F,col.names=F)
+
+
+```
+
+## TriNuc Bash scripts
+```{bash trinucBash, eval = FALSE}
+#Testis Samples
+#!/bin/bash
+
+GENOME=/nfs/cancer_ref01/Homo_sapiens/37/genome.fa
+CALLABLE=/lustre/scratch119/casm/team294rr/rs30/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Normal
+INDIVs=(PD40744c PD40745c_PD42564c PD40746c_PD42568c PD42034b PD42036b PD42563c PD42565c PD42566c PD42569c PD43726c PD43727b PD46269c)
+OUT=/lustre/scratch119/casm/team294rr/mn7/pipelineInput/triNucBackground/Testes
+
+#Get trinucleotide counts for callable regions
+for indiv in ${INDIVs[@]}
+do
+	Rscript triNucCounter.R $GENOME $OUT/${indiv}.full $CALLABLE/${indiv}.sorted.merged.bed
+done	
+	
+#Commands
+bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./testesTriNuc.sh
+
+#Colon Samples
+#!/bin/bash
+
+GENOME=/nfs/cancer_ref01/Homo_sapiens/37/genome.fa
+CALLABLE=/lustre/scratch119/casm/team294rr/rs30/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Colon
+INDIVs=(PD40745b_PD42564b PD40746b_PD42568b PD42563b PD42566b)
+OUT=/lustre/scratch119/casm/team294rr/mn7/pipelineInput/triNucBackground/Colon
+
+#Get trinucleotide counts for callable regions
+for indiv in ${INDIVs[@]}
+do
+	Rscript triNucCounter.R $GENOME $OUT/${indiv}.full $CALLABLE/${indiv}.sorted.merged.bed
+done	
+	
+#Commands
+bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./colonTriNuc.sh
+```
+
+## Background Rate
+```{r trinucBackground, fig.height=4, fig.width=10}
+pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
+
+getRateTable <- function(vcf_list, mutFolder, suffix = ".tri_freqs.pyr.tsv") {
+  #Get total muts for tissue
+  muts0 <- mut_matrix(vcf_list, ref_genome)
+  muts <- as_tibble(muts0) %>% 
+    mutate(mutType = rownames(muts0)) %>% 
+    rowwise() %>%
+    mutate(totMuts = sum(c_across(where(is.numeric))))
+  #Get mean opportunities for tissue
+  pyrCountFiles <- list.files(mutFolder, pattern = suffix, full.names = TRUE)
+  samples <- str_remove(list.files(mutFolder, pattern = suffix), suffix)
+  opps <- NULL
+  for(i in 1:length(pyrCountFiles)) {
+    pyrDF <- read_tsv(pyrCountFiles[i], col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2] 
+    colnames(pyrDF) <- samples[i]
+    opps <- bind_cols(opps, pyrDF)
+  }
+  opp_to <- opps %>% 
+    rowwise() %>%
+    mutate(meanOpps = mean(c_across(cols = everything())))
+  freqDF <- bind_cols(muts, opp_to) %>% 
+    select(mutType, totMuts, meanOpps) %>% 
+    mutate(rate = totMuts/meanOpps) %>% 
+    mutate(context = paste0(str_sub(mutType,1,1),str_sub(mutType,3,3),str_sub(mutType,7,7))) %>% 
+    group_by(context) %>% 
+    summarise(rate = sum(rate), .groups = "drop") %>% 
+    mutate(rate = rate/sum(lengths(vcf_list)))
+  # scaledDF <- freqDF %>% 
+  #   mutate(scaledRate = rate * (1/sum(freqDF$rate))) %>% 
+  #   select(-rate)
+  return(freqDF)
+}
+
+colonTriRate <- getRateTable(colonVCF, mutFolder = paste0(path, "triNucBackground/Colon"), suffix = ".tri_freqs.pyr.tsv")
+testesTriRate <- getRateTable(testesVCF, mutFolder = paste0(path, "triNucBackground/Testes"), suffix = ".tri_freqs.pyr.tsv")
+
+colonTriRate %>% 
+  ggplot(aes(x = context, y = scaledRate)) +
+  geom_point() + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  ylab("Mut Rate") +
+  xlab("") 
+testesTriRate %>% 
+  ggplot(aes(x = context, y = scaledRate)) +
+  geom_point() + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  ylab("Mut Rate") +
+  xlab("") 
+```
+
+## Custom Enrich Fxn
+```{r customEnrichFxn, fig.height=4, fig.width=6}
+#Edit intersect_with_region and genomic_distribution fxns from mutational patterns 
+#to calculate expected value while controlling for triNuc mutation rate of the tissue type
+intersect_with_regionCustom = function(vcf, surveyed, region, triRateTable, tissueType) {
+    # Number of mutations in vcf file
+    n_muts = length(vcf)
+    # Number of base pairs that were surveyed
+    surveyed_length = sum(as.numeric(width(surveyed)))
+    # Check if chromosome names are the same in the objects
+    if (seqlevelsStyle(vcf) != seqlevelsStyle(surveyed))
+        stop(paste("The chromosome names (seqlevels) of the VCF and the",
+                    "surveyed GRanges object do not match."))
+    if (seqlevelsStyle(region) != seqlevelsStyle(surveyed))
+        stop(paste("The chromosome names (seqlevels) of the surveyed and",
+                    "the region GRanges object do not match."))
+    # Intersect genomic region and surveyed region
+    surveyed_region = intersect(surveyed, region, ignore.strand = TRUE)
+    surveyed_region_length = sum(width(surveyed_region))
+    #Count trinuc freq
+    cat("Extracting sequences...\n")
+  	sequences = getSeq(BSgenome.Hsapiens.UCSC.hg19, surveyed_region)
+    cat("Calculating trinucleotide frequencies...\n")
+    tri_freqs <- trinucleotideFrequency(sequences)
+    
+    complement = vector()
+    complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";	
+    tri_freqs_summary <- as.tibble(tri_freqs) %>% 
+      summarise(across(.cols = everything(), sum)) %>% 
+      pivot_longer(cols = everything(), names_to = "context0", values_to = "count") %>% 
+      #Convert to pyr reference
+      mutate(context = ifelse(str_sub(context0,2,2) %in% c("C", "T"), context0, paste0(complement[str_sub(context0, 3,3)], complement[str_sub(context0, 2,2)], complement[str_sub(context0, 1,1)]))) %>% 
+      group_by(context) %>% 
+      summarise(count = sum(count), .groups = "drop") %>% 
+      left_join((triRateTable %>% filter(tissue == tissueType)), by = "context") %>% 
+      mutate(expected = count * (rate * n_muts))
+    
+    
+    # Find which mutations lie in surveyed genomic region
+    overlap = findOverlaps(vcf, surveyed_region)
+    muts_in_region = as.data.frame(as.matrix(overlap))$queryHits
+    observed = length(muts_in_region)
+    
+    expected = sum(tri_freqs_summary$expected)
+    res = data.frame(n_muts,
+                    surveyed_length,
+                    surveyed_region_length,
+                    expected,
+                    observed,
+                    tissueType)
+    return(res)
+}
+
+genomic_distributionCustom <- function (vcf_list, surveyed_list, region_list, triRateTable, tissues) {
+    if (length(vcf_list) != length(surveyed_list)) 
+        stop("vcf_list and surveyed_list must have the same length")
+    if (is.null(names(region_list))) 
+        stop(paste("Please set the names of region_list using:", 
+            "    names(region_list) <- c(\"regionA\", \"regionB\", ...)", 
+            sep = "\n"))
+    df = data.frame()
+    for (j in 1:length(region_list)) {
+        for (i in 1:length(vcf_list)) {
+            res = intersect_with_regionCustom(vcf_list[[i]], surveyed_list[[i]], 
+                region_list[[j]], triRateTable, tissueType = tissues[i])
+            res$region = names(region_list)[j]
+            res$sample = names(vcf_list)[i]
+            df = rbind(df, res)
+        }
+    }
+    df$region = factor(df$region, levels = names(region_list))
+    return(df)
+}
+
+mainRepDist <- genomic_distributionCustom(VCFs, surveyed_list, regions_list, triRateTable, tissues)
+
+yo = colonRepDist %>% 
+  group_by(region, tissueType) %>% 
+  summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+  mutate(by = "Colon") %>% 
+  mutate(prob = 0) %>% 
+  mutate(effect = "depletion") %>% 
+  mutate(pval = 1) %>% 
+  mutate(significant = "") %>% 
+  select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant)
+
+
+testesRepDist <- genomic_distributionCustom(testesVCF, testesSurveyed, regions_list, testesTriRate)
+yo2 = testesRepDist %>% 
+  group_by(region) %>% 
+  summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+  mutate(by = "Testis") %>% 
+  mutate(prob = 0) %>% 
+  mutate(effect = "depletion") %>% 
+  mutate(pval = 1) %>% 
+  mutate(significant = "") %>% 
+  select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant) %>% 
+  bind_rows(yo)
+
+plot_enrichment_depletion_prop(yo2)
+
+
+```
+
+
 # Mutational Patterns Analysis
 ## 6 Mutation Type plots
-```{r}
+```{r, fig.height=4, fig.width=10}
 #Single Nucleotide spectrum
 singleSpec <- plot_spectrum(type_occurrences, by = tissues, CT = TRUE, legend = TRUE)
 singleSpec
@@ -504,47 +972,92 @@ singleSpec
 png(paste0(plotsPath, 'singleSpec.png'), height=5, width=8, units = "in", res = 300)
 singleSpec
 dev.off()
+
+pdf(paste0(plotsPath, 'singleSpec.pdf'), height=5, width=8)
+singleSpec
+dev.off()
 ```
 
 ## Transcriptional strand bias analysis
-```{r transcriptionBias, fig.height=4, fig.width=10}
+```{r transcriptionBias, fig.height=6, fig.width=10}
 genes_hg19 <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene)
 cds_hg19 <- cds(TxDb.Hsapiens.UCSC.hg19.knownGene)
 transcripts_hg19 <- transcripts(TxDb.Hsapiens.UCSC.hg19.knownGene)
 
 mut_mat_s <- mut_matrix_stranded(VCFs, ref_genome, transcripts_hg19)
-#By Tissue Type ("Testes", "Colon", "Testes(Benign)")
+#By Tissue Type
 strand_counts <- strand_occurrences(mut_mat_s, by=tissues)
 #Poisson test for strand asymmetry significance
 strand_bias <- strand_bias_test(strand_counts) %>% 
   #Multiple test correction
-  mutate(significant = if_else(p_poisson < p_corrected, "*", ""))
+  mutate(significant = if_else(p_poisson < p_corrected, "*", "")) %>% 
+  mutate(logRatio = log2(transcribed/untranscribed)) %>% 
+  mutate(class = if_else(str_detect(group, "Testis"), "Germline", "Soma")) %>% 
+  mutate(class = fct_relevel(class, "Soma", "Germline"))
 #Plot the mutation spectrum with strand distinction:
 ps1 <- plot_strand(strand_counts, mode = "relative")
 #effect size (log2(untranscribed/transcribed) of the strand bias
-ps2 <- plot_strand_bias(strand_bias)
+ps2 <- plot_strand_bias(strand_bias) + theme(legend.position = "none")
 ps1 / ps2 + plot_layout(guides = 'collect')
 
 png(paste0(plotsPath, 'txStrandBias.png'), height=5, width=10, units = "in", res = 300)
 ps1 / ps2 + plot_layout(guides = 'collect')
 dev.off()
+
+pdf(paste0(plotsPath, 'txStrandBias.pdf'), height=5, width=10)
+ps1 / ps2 + plot_layout(guides = 'collect')
+dev.off()
+
+
+txBiasSummary <- ggplot(strand_bias, aes(type, logRatio, color = group, label = significant)) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_jitter(position = position_jitter(width = 0.2, seed = 1), size = 3, aes(shape = class)) + 
+  theme_bw() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) +
+  geom_text(position = position_jitter(width = 0.2, seed = 1), color= "black", size = 5) +
+  ylab("log2(trans/untrans)") +
+  guides(shape = FALSE)
+txBiasSummary 
+
+png(paste0(plotsPath, 'txStrandBiasSummary.png'), height=8, width=12, units = "in", res = 300)
+ps1 / txBiasSummary + plot_layout(heights = c(1, 2)) + plot_layout(guides = 'collect')
+dev.off()
 ```
 
 ## Replication Strand
 ```{r repStrand}
-load(paste0(path,"mutPatternsRegions/replicationDirection_list.RData"))
 
-repStrand_dist = genomic_distribution(VCFs, surveyed_list, replicationDirection_list)
-repStrand_depl <- enrichment_depletion_test(repStrand_dist,by=tissues) %>% 
+repli_file = system.file("extdata/ReplicationDirectionRegions.bed", package = "MutationalPatterns")
+repli_strand = read.table(repli_file, header = TRUE)
+# Store in GRanges object
+repli_strand_granges = GRanges(seqnames = repli_strand$Chr, 
+                               ranges = IRanges(start = repli_strand$Start + 1,
+                                                end = repli_strand$Stop),
+                               strand_info = repli_strand$Class)
+seqlevelsStyle(repli_strand_granges) = "UCSC"
+
+mut_mat_s_rep <- mut_matrix_stranded(VCFs, ref_genome, repli_strand_granges, mode = "replication")
+
+strand_counts_rep <- strand_occurrences(mut_mat_s_rep, by=tissues)
+
+strand_bias_rep <- strand_bias_test(strand_counts_rep) %>% 
   #Multiple test correction
-  mutate(significant = if_else(pval < p_corrected, "*", ""))
-pRepStrand <- plot_enrichment_depletion_prop(repStrand_depl)
-pRepStrand
+  mutate(significant = if_else(p_poisson < p_corrected, "*", ""))
 
-png(paste0(plotsPath, 'repStrandBias.png'), height=5, width=8, units = "in", res = 300)
-pRepStrand
+#Plot the mutation spectrum with strand distinction:
+ps1 <- plot_strand(strand_counts_rep, mode = "relative")
+#effect size (log2(untranscribed/transcribed) of the strand bias
+ps2 <- plot_strand_bias(strand_bias_rep) + theme(legend.position = "none")
+
+ps1 / ps2 + plot_layout(guides = 'collect')
+
+png(paste0(plotsPath, 'repStrandBias.png'), height=5, width=10, units = "in", res = 300)
+ps1 / ps2 + plot_layout(guides = 'collect')
 dev.off()
 
+pdf(paste0(plotsPath, 'repStrandBias.pdf'), height=5, width=10)
+ps1 / ps2 + plot_layout(guides = 'collect')
+dev.off()
 ```
 
 ## Replication Timing
@@ -580,30 +1093,15 @@ pRepTiming
 png(paste0(plotsPath, 'repTimingBias.png'), height=5, width=8, units = "in", res = 300)
 pRepTiming
 dev.off()
+
+pdf(paste0(plotsPath, 'repTimingBias.pdf'), height=5, width=8)
+pRepTiming
+dev.off()
 ```
 
 ## Alt Replication Timing
 ```{r}
 # Use different cell lines for comparison
-H9es1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeH9es.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
-  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
-  mutate(repTime = as.numeric(repTime))
-hist(H9es1mb$repTime)
-
-LCL1mb <- read_tsv(paste0(path, "mutPatternsRegions/repTimeLCL.1mb.bed"), col_names = c("chr", "start", "end", "repTime"), col_types = 'ciic') %>% 
-  mutate(repTime = if_else(repTime == ".", "NA", repTime)) %>% 
-  mutate(repTime = as.numeric(repTime))
-hist(H9es1mb$repTime)
-
-#Split into 3 roughly equal groups
-write_tsv(H9es1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9early.bed"), col_names = F)
-write_tsv(H9es1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9intermediate.bed"), col_names = F)
-write_tsv(H9es1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/H9repTiming/H9late.bed"), col_names = F)
-
-write_tsv(LCL1mb %>% filter(repTime > 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLearly.bed"), col_names = F)
-write_tsv(LCL1mb %>% filter(repTime > -0.5 & repTime < 0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLintermediate.bed"), col_names = F)
-write_tsv(LCL1mb %>% filter(repTime < -0.5), path = paste0(path, "mutPatternsRegions/LCLrepTiming/LCLlate.bed"), col_names = F)
-
 
 H9_regions_files = list.files(paste0(path,"mutPatternsRegions/H9repTiming"), full.names = T)
 print(H9_regions_files)
@@ -633,6 +1131,9 @@ png(paste0(plotsPath, 'H9repTimingBias.png'), height=5, width=8, units = "in", r
 H9_pRepTiming
 dev.off()
 
+pdf(paste0(plotsPath, 'H9repTimingBias.pdf'), height=5, width=8)
+H9_pRepTiming
+dev.off()
 
 
 LCL_regions_files = list.files(paste0(path,"mutPatternsRegions/LCLrepTiming"), full.names = T)
@@ -662,6 +1163,10 @@ LCL_pRepTiming
 png(paste0(plotsPath, 'LCLrepTimingBias.png'), height=5, width=8, units = "in", res = 300)
 LCL_pRepTiming
 dev.off()
+
+pdf(paste0(plotsPath, 'LCLrepTimingBias.pdf'), height=5, width=8)
+LCL_pRepTiming
+dev.off()
 ```
 
 ## Misc Features
@@ -678,6 +1183,10 @@ miscEnrichments <- plot_enrichment_depletion_prop(misc_depl)
 miscEnrichments 
 
 png(paste0(plotsPath, 'miscEnrichments.png'), height=5, width=8, units = "in", res = 300)
+miscEnrichments
+dev.off()
+
+pdf(paste0(plotsPath, 'miscEnrichments.pdf'), height=5, width=8)
 miscEnrichments
 dev.off()
 ```
@@ -709,6 +1218,10 @@ recombEnrich
 png(paste0(plotsPath, 'recombEnrich.png'), height=5, width=5, units = "in", res = 300)
 recombEnrich
 dev.off()
+
+pdf(paste0(plotsPath, 'recombEnrich.pdf'), height=5, width=5)
+recombEnrich
+dev.off()
 ```
 
 ## Genome Segments
@@ -722,14 +1235,621 @@ segments_depl = enrichment_depletion_test(segments_dist, by = tissues) %>%
   mutate(significant = if_else(pval < p_corrected, "*", ""))
 segments_depl$region = factor(segments_depl$region, levels = c("TSS","PF","E","WE","CTCF","T","R"))
 pSegments <- plot_enrichment_depletion_prop(segments_depl)
-
+pSegments
 png(paste0(plotsPath, 'segments.png'), height=5, width=10, units = "in", res = 300)
+pSegments 
+dev.off()
+
+pdf(paste0(plotsPath, 'segments.pdf'), height=5, width=10)
 pSegments 
 dev.off()
 ```
 
+# Expression
+## PanBody Model
+```{r PanBodyExpr, fig.height=5, fig.width=10}
+biomart <- read_tsv(paste0(path, "expression/txCoordsHG19.txt"), col_types = 'ccciiciic', skip = 1, col_names = c("gene", "geneVersion", "chr", "start", "end", "txType", "txStart", "txEnd", "strand")) %>% 
+  mutate(strand = if_else(strand == "1", "+", "-")) %>% 
+  group_by(gene, chr, strand) %>% 
+  summarize(start = min(start), end = max(end), txStart = min(txStart), txEnd = max(txEnd), txType = paste(txType, collapse = ";"), .groups = "drop")
+
+gtexMedian <- read_tsv(paste0(path, "expression/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz"), skip = 2, col_types = cols(Name = "c", Description = "c", .default = "d")) %>%  
+  mutate(gene = str_remove(Name, "\\..*")) %>% 
+  #Join hg19 coords
+  left_join(biomart, by = "gene") %>% 
+  #Drop non-standard chromosomes
+  filter(chr %in% c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X")) %>% 
+  drop_na()
+
+txPanBody <- gtexMedian %>% 
+  mutate(length = txEnd - txStart) %>% 
+  select(gene, chr, txStart, txEnd, strand, length,
+         adrenal_gland = "Adrenal Gland", bronchus_epithelium = "Lung", colon = "Colon - Sigmoid", liver = "Liver", oesophagus = "Esophagus - Mucosa",
+         pancreas = "Pancreas", prostate = "Prostate", skin = "Skin - Sun Exposed (Lower leg)", #skinNoSun = "Skin - Not Sun Exposed (Suprapubic)", 
+         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid")
+txPanBody_gr <- GRanges(txPanBody$chr, IRanges(start=txPanBody$txStart,end=txPanBody$txEnd), strand = txPanBody$strand)
+seqlevelsStyle(txPanBody_gr) <- "UCSC"
+txPanBody <- txPanBody %>% 
+  mutate(gc_content = gcContentCalc(txPanBody_gr, BSgenome.Hsapiens.UCSC.hg19))
+
+ovsPanBody<- as.data.frame(findOverlaps(unlist(VCFs),txPanBody_gr))
+overlapHitsPanBody <- txPanBody[ovsPanBody$subjectHits,] %>% 
+  mutate(tissue = tissuesByVar[ovsPanBody$queryHits]) %>% 
+  group_by(gene, tissue) %>% 
+  dplyr::summarise(count = n()) %>% 
+  ungroup() 
+
+tissueMuts0 <- txPanBody %>% 
+  #Pivot for one row per gene tissue pair
+  pivot_longer(cols = -c(gene, chr, txStart, txEnd, strand, length, gc_content), names_to = "tissue", values_to = "tpm") %>% 
+  left_join(overlapHitsPanBody, by = c("gene", "tissue")) %>% 
+  mutate(count = replace_na(count, 0)) %>% 
+  #Bin expression on tpm
+  mutate(bin = "Unexp") %>% 
+  mutate(bin = if_else(tpm > 0 & tpm <= 1, "0-1", bin)) %>% 
+  mutate(bin = if_else(tpm > 1 & tpm <= 10, "1-10", bin)) %>% 
+  mutate(bin = if_else(tpm > 10 & tpm <= 100, "10-100", bin)) %>% 
+  mutate(bin = if_else(tpm > 100, "100+", bin)) %>% 
+  mutate(bin = fct_relevel(bin, c("Unexp", "0-1", "1-10", "10-100", "100+")))
+
+tissueMuts <- tissueMuts0 %>% 
+  group_by(tissue, bin) %>% 
+  summarize(length = sum(length), count = sum(count), genes = n()) %>% 
+  mutate(rate = count/length) 
+
+ggplot(tissueMuts, aes(bin, rate)) +
+  geom_point() +
+  facet_grid(rows = vars(tissue), scales = "free")
+
+plot_glmm <- function(mutTable, dataSources, exprGroups, tests = 8, formula) {
+  #Construct formula and run model
+  df <- tibble()
+  for (dataset in dataSources) {
+    fit_full <- glmer(formula = as.formula(formula), data = (mutTable %>% filter(tissue == dataset)), family = poisson(),
+                    control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+    # print(dispersion_glmer(fit_full))
+    #print(summary(fit_full, corr = F))
+    tidy_fit_full <- tidy(fit_full) %>% 
+      mutate(p.format = signif(p.value, 2)) %>% 
+      mutate(source = dataset) %>% 
+      mutate(term = str_replace(term, "\\(Intercept\\)", "binUnexp")) %>% 
+      mutate(estimate = if_else(term == "binUnexp", 0, estimate)) %>% 
+      mutate(p.value = if_else(term == "binUnexp", 1, p.value))
+      
+    df <- df %>% bind_rows(tidy_fit_full[1:5,])
+  }
+  #Plot together
+  sigThresh <- 0.05 / tests
+  df2 <- df %>% 
+    mutate(p.format = if_else(p.value < sigThresh, "*", "")) %>% 
+    mutate(bin = str_remove(term,"bin"))
+  df2$bin <- factor(df2$bin, levels = exprGroups)
+  df2$source <- factor(df2$source, levels = dataSources)
+  plot <- ggplot(df2, aes(x = bin, y = estimate, colour = source, label = p.format, group = interaction(group, source))) +
+    geom_hline(yintercept = 0, colour = "grey") +
+    geom_point(position = position_dodge(0.7), size = 3) +
+    geom_errorbar(aes(ymin=estimate-(std.error*1.96), ymax=estimate+(std.error*1.96)), width=.1, position = position_dodge(0.7)) +
+    geom_text(aes(y = estimate+(std.error*1.96)), colour = "black", size = 4, position = position_dodge(0.7), vjust = -0.75) +
+    theme_minimal() +
+    xlab("Median Tissue TPM") + ylab("Effect estimate") + labs(colour = "Variant Source")
+  return(plot)
+  plot
+}
+
+glmmPlot <- plot_glmm(mutTable = tissueMuts0, dataSources = unique(tissueMuts$tissue), exprGroups = c("Unexp", "0-1", "1-10", "10-100", "100+"), tests = 8, formula = "count ~ bin + offset(log(length)) + offset(log(gc_content)) + (1|gene)")
+glmmPlot
+
+```
+
+## Germline Model
+```{r glmm, fig.height=3, fig.width=5}
+get_gene_df <- function() {
+  biomart <- read_tsv(paste0(path, "expression/gene_prot_coords.tsv"), col_types = 'ccciiiii') %>% 
+    drop_na(prot) %>% 
+    dplyr::rename(prot_id = prot, gene_id = gene)
+  
+  data("refcds_hg19", package="dndscv")
+  gene_df <- tibble(gene_name = sapply(RefCDS, function(x) x$gene_name),
+                    prot_id = sapply(RefCDS, function(x) x$protein_id)) %>% 
+    left_join(biomart, by = "prot_id") %>% 
+    mutate(length = end - start)
+  gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end), strand = gene_df$strand)
+  seqlevelsStyle(gene_gr) <- "UCSC"
+  gene_df <- gene_df %>% 
+    mutate(gc_content = gcContentCalc(gene_gr, BSgenome.Hsapiens.UCSC.hg19)) %>% 
+    select(gene_name, chr, start, end, strand, length, gc_content)
+  return(gene_df)
+}
+gene_df <- get_gene_df() 
+rm(RefCDS, gr_genes)
+gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end))
+seqlevelsStyle(gene_gr) <- "UCSC"
+
+
+
+ovs<- as.data.frame(findOverlaps(unlist(VCFs),gene_gr))
+overlapHits <- gene_df[ovs$subjectHits,] %>% 
+  mutate(source = tissuesByVar[ovs$queryHits]) %>% 
+  group_by(gene_name, source) %>% 
+  dplyr::summarise(count = n()) %>% 
+  ungroup() 
+
+
+mutsDF0 <- tibble()
+for(tissue in unique(tissues))(mutsDF0 <- bind_rows(mutsDF0, gene_df %>% mutate(source = tissue)))
+
+#Expression Data transcriptional scanning paper
+fixDatesTable <- tibble(gene_name = c("01-Dec","01-Sep","02-Sep","03-Mar","03-Sep","04-Mar","04-Sep","05-Mar","05-Sep","06-Mar","06-Sep","07-Mar","07-Sep","08-Mar","08-Sep","09-Mar","09-Sep","10-Mar","10-Sep","11-Mar","11-Sep","12-Sep","14-Sep"),
+                        fix = c("DEC1","SEPT1","SEPT2","MARCH3","SEPT3","MARCH4","SEPT4","MARCH5","SEPT5","MARCH6","SEPT6","MARCH7","SEPT7","MARCH8","SEPT8","MARCH9","SEPT9","MARCH10","SEPT10","MARCH11","SEPT11","SEPT12","SEPT14"))
+
+germCellExpr <- read_csv(paste0(path, "expression/expr_level_groups.csv"), col_types = cols(.default = "c")) %>% 
+  pivot_longer(1:9, names_to = "group", values_to = "gene_name") %>% 
+  drop_na() %>% 
+  left_join(fixDatesTable, by ="gene_name") %>% 
+  mutate(gene_name = if_else(gene_name %in% fixDatesTable$gene_name, fix, gene_name)) %>% 
+  select(-fix) 
+
+mutsDF <- mutsDF0 %>% 
+  left_join(overlapHits, by = c("gene_name", "source")) %>% 
+  mutate(count = replace_na(count, 0)) %>% 
+  left_join(germCellExpr, by = "gene_name") %>% 
+  mutate(group = fct_relevel(group, c("Group_Unexp","Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"))) %>% 
+  drop_na()
+
+plot_glmm <- function(mutTable, dataSources, exprGroups, tests = 8, formula) {
+  #Construct formula and run model
+  df <- tibble()
+  for (dataset in dataSources) {
+    fit_full <- glmer(formula = as.formula(formula), data = (mutTable %>% filter(source == dataset)), family = poisson(),
+                    control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+    #print(dispersion_glmer(fit_full))
+    #print(summary(fit_full, corr = F))
+    tidy_fit_full <- tidy(fit_full) %>% 
+      mutate(group = str_remove(term,"group")) %>% 
+      mutate(p.format = signif(p.value, 2)) %>% 
+      mutate(source = dataset)
+    df <- df %>% bind_rows(tidy_fit_full[2:9,])
+  }
+  #Plot together
+  sigThresh <- 0.05 / tests
+  df2 <- df %>% 
+    mutate(p.format = if_else(p.value < sigThresh, "*", ""))
+  df2$group <- factor(df2$group, levels = exprGroups)
+  df2$source <- factor(df2$source, levels = dataSources)
+  plot <- ggplot(df2, aes(x = group, y = estimate, colour = source, label = p.format, group = interaction(group, source))) +
+    geom_hline(yintercept = 0, colour = "grey") +
+    geom_point(position = position_dodge(0.9), size = 3) +
+    geom_errorbar(aes(ymin=estimate-(std.error*1.96), ymax=estimate+(std.error*1.96)), width=.1, position = position_dodge(0.9)) +
+    geom_text(aes(y = estimate+(std.error*1.96)), colour = "black", size = 4, position = position_dodge(0.9), vjust = -0.75) +
+    theme_minimal() +
+    xlab("Expression bin") + ylab("Effect estimate") + labs(colour = "Variant Source")
+  return(plot)
+}
+#Plot for individual datasets or all together
+glmmTissues <- c("Testes", "Trio_DNMs", "PopVars")
+#glmmTissues <- tissues
+glmmPlot <- plot_glmm(mutTable = mutsDF, dataSources = glmmTissues, exprGroups = c("Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"), tests = 8, formula = "count ~ group + offset(log(length)) + offset(log(gc_content)) + (1|gene_name)")
+glmmPlot
+
+png(paste0(plotsPath, 'glmmExpression.png'), height=5, width=10, units = "in", res = 300)
+glmmPlot
+dev.off()
+
+pdf(paste0(plotsPath, 'glmmExpression.pdf'), height=5, width=10)
+glmmPlot
+dev.off()
+```
+
+
+# Adjusted Reptiming
+## Dataset
+```{r AdjRepTiming, fig.height=6, fig.width=10}
+repTimingFolder = paste0(path, "repTimingSigs/")
+pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
+
+
+getMutTableA <- function(mutFolder, suffix) {
+  files <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
+  samples <- str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
+  VCF <- read_vcfs_as_granges(files, samples, ref_genome, check_alleles=T)
+  muts <- as_tibble(t(mut_matrix(vcf_list = VCF, ref_genome)))
+  return(muts)
+}
+
+getOppTableA <- function(mutFolder, suffix) {
+  pyrCountFiles <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
+  samples <-  str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
+  opps <- NULL
+  for(i in pyrCountFiles) {
+    pyrDF <- read_tsv(i, col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2]
+    opps <- bind_cols(opps, pyrDF)
+  }
+  opps <- as_tibble(t(opps), rownames = NULL, colnames = NULL)
+  return(opps)
+}
+
+getEnrichTable <- function(mutFolder, header = "", earlySuffix = ".earlyRep", lateSuffix = ".lateRep") {
+  muts <- getMutTableA(mutFolder, suffix = paste0(header, lateSuffix, ".vcf")) %>% 
+    summarise_all(list(sum))
+  opp_to <- getOppTableA(mutFolder, suffix = paste0(header, lateSuffix, ".tri_freqs.pyr.tsv")) %>% 
+      summarise_all(list(mean))
+  
+  enrichDF0 <- tibble(mutType = colnames(muts),
+                     muts = muts %>% slice(1) %>% as.numeric(),
+                     opps = opp_to %>% slice(1) %>% as.numeric(),
+                     totalMuts = sum(muts),
+                     totalOpps = sum(opp_to))
+  enrichDF <- enrichDF0 %>% 
+    mutate(normProp = (muts/opps))# / (totalMuts/totalOpps))
+  
+  
+  muts2 <- getMutTableA(mutFolder, suffix = paste0(header,earlySuffix, ".vcf")) %>% 
+      summarise_all(list(sum))
+  
+  opp_to2 <- getOppTableA(mutFolder, suffix = paste0(header, earlySuffix, ".tri_freqs.pyr.tsv")) %>% 
+      summarise_all(list(mean))
+  
+  enrichDF20 <- tibble(mutType = colnames(muts2),
+                     muts = muts2 %>% slice(1) %>% as.numeric(),
+                     opps = opp_to2 %>% slice(1) %>% as.numeric(),
+                     totalMuts = sum(muts2),
+                     totalOpps = sum(opp_to2))
+  
+  enrichDF2 <- enrichDF20 %>% 
+    mutate(normProp = (muts/opps)) %>% # / (totalMuts/totalOpps)) %>% 
+    mutate(lateProp = enrichDF$normProp) %>% 
+    mutate(EvsL_ratio =  enrichDF$normProp/normProp) %>%
+    mutate(EvsL_percentage = (EvsL_ratio - 1) *100) %>% 
+    arrange(-EvsL_ratio) %>% 
+    mutate(mutGroup = str_sub(mutType, 3,5)) %>% 
+    mutate(mutType = fct_reorder(mutType, -EvsL_ratio)) 
+  p <- ggplot(enrichDF2, aes(x = mutType, y = EvsL_percentage)) +
+    geom_hline(yintercept=0) +
+    geom_point(aes(colour = mutGroup)) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("% enrich in late rep regions -->") +
+    xlab("") 
+  return(p)
+}
+
+testesEnrich <- getEnrichTable(mutFolder = "Testes/")
+testesEnrich
+colonEnrich <- getEnrichTable(mutFolder = "Colon/")
+colonEnrich
+popVarsEnrich <- getEnrichTable(mutFolder = "PopVars/")
+popVarsEnrich
+
+pdf(paste0(plotsPath, 'enrichRepTime.pdf'), height=12, width=12)
+testesEnrich / colonEnrich / popVarsEnrich
+dev.off()
+
+
+testesDF <- read_tsv(paste0(path, "plots/enrichRepTimeJun26_20/Testes_repTable.tsv")) %>% 
+  mutate(mutType = fct_reorder(mutType, -EvsL_ratio)) %>% 
+  mutate(lateProp = EvsL_ratio * normProp) %>% 
+  select(earlyProp = normProp, lateProp, mutType) %>% 
+  pivot_longer(cols = c(earlyProp, lateProp), names_to = "timing", values_to = "prop") %>% 
+  ggplot(aes(x = mutType, y = prop)) +
+    geom_point(aes(colour = timing)) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("normalized proportion") +
+    xlab("") 
+testesDF
+colonDF <- read_tsv(paste0(path, "plots/enrichRepTimeJun26_20/Colon_repTable.tsv")) %>% 
+  mutate(mutType = fct_reorder(mutType, -EvsL_ratio)) %>% 
+  mutate(lateProp = EvsL_ratio * normProp) %>% 
+  select(earlyProp = normProp, lateProp, mutType) %>% 
+  pivot_longer(cols = c(earlyProp, lateProp), names_to = "timing", values_to = "prop") %>% 
+  ggplot(aes(x = mutType, y = prop)) +
+    geom_point(aes(colour = timing)) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("normalized proportion") +
+    xlab("") 
+colonDF
+popVarsDF <- read_tsv(paste0(path, "plots/enrichRepTimeJun26_20/PopVars_repTable.tsv") )%>% 
+  mutate(mutType = fct_reorder(mutType, -EvsL_ratio)) %>% 
+  mutate(lateProp = EvsL_ratio * normProp) %>% 
+  select(earlyProp = normProp, lateProp, mutType) %>% 
+  pivot_longer(cols = c(earlyProp, lateProp), names_to = "timing", values_to = "prop") %>% 
+  ggplot(aes(x = mutType, y = prop)) +
+    geom_point(aes(colour = timing)) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("normalized proportion") +
+    xlab("") 
+popVarsDF
+
+
+testesProp <- enrichDF2 %>% 
+  select(earlyProp = normProp, lateProp, mutType) %>% 
+  pivot_longer(cols = c(earlyProp, lateProp), names_to = "timing", values_to = "prop") %>% 
+  ggplot(aes(x = mutType, y = prop)) +
+    geom_point(aes(colour = timing)) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("normalized proportion") +
+    xlab("") 
+testesProp 
+testesDelta <- enrichDF2 %>% 
+  select(earlyProp = normProp, lateProp, mutType) %>% 
+  mutate(delta = lateProp - earlyProp) %>% 
+  ggplot(aes(x = mutType, y = delta)) +
+    geom_point(aes(colour = "black")) + 
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ylab("lateProp - earlyProp") +
+    xlab("") 
+testesDelta 
+
+colonProp <- ggplot(propCompare, aes(x = mutType, y = prop)) +
+  geom_point(aes(colour = timing)) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  ylab("normalized proportion") +
+  xlab("") 
+colonProp
+
+
+
+yo <- enrichDF20 %>% 
+    mutate(normProp = (muts/opps)) %>% # / (totalMuts/totalOpps)) %>% 
+    mutate(lateProp = enrichDF$normProp) %>% 
+  left_join(enrichDF, by ="mutType") %>% 
+  select(mutType, earlyMuts = muts.x, earlyOpps = opps.x, lateMuts = muts.y, lateOpps = opps.y)
+
+yo2 <- enrichDF20 %>% 
+    mutate(normProp = (muts/opps)) %>% # / (totalMuts/totalOpps)) %>% 
+    mutate(lateProp = enrichDF$normProp) %>% 
+  left_join(enrichDF, by ="mutType") %>% 
+  mutate(cpg = if_else(str_sub(mutType, 3, 3) == "C" & str_sub(mutType, 7, 7) == "G", T, F)) %>% 
+  filter(cpg == F)
+
+sum(yo2$muts.x)/yo2$totalOpps.x[1]
+sum(yo2$muts.y)/yo2$totalOpps.y[1]
+```
+
+
+# SigFit Reptiming
+## Dataset
+```{r SigFitData}
+repTimingFolder = paste0(path, "repTimingSigs/")
+pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
+
+#Use signatures from cosmic but edit 10b and add 10c to match signatures from POL mutant paper
+data("cosmic_signatures_v3")
+polSigs <- read.table(paste0(repTimingFolder, "POLpaperSignatures.txt")) %>% 
+  select(SBS10B,SBS10C) %>% 
+  t()
+cosmic_signatures_v3_custom10 <- rbind(cosmic_signatures_v3, polSigs)
+
+
+getMutTable <- function(mutFolder, suffix) {
+  files <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
+  samples <- str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
+  VCF <- read_vcfs_as_granges(files, samples, ref_genome, check_alleles=T)
+  muts <- t(mut_matrix(vcf_list = VCF, ref_genome))
+  return(muts)
+}
+
+getOppTable <- function(mutFolder, suffix) {
+  pyrCountFiles <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
+  samples <-  str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
+  opps <- NULL
+  for(i in pyrCountFiles) {
+    pyrDF <- read_tsv(i, col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2]
+    opps <- bind_cols(opps, pyrDF)
+  }
+  opps <- as_tibble(t(opps), rownames = NULL, colnames = NULL)
+  return(opps)
+}
+
+
+#Default sigs 1, 5 and 18 for testes and colon
+getExposureCustom <- function(mutFolder, suffix, adjust = F, header = "", sigChoice = c("SBS1", "SBS5", "SBS18")) {
+  #Calculate exposures for each timing bin
+  exposureDF <- tibble()
+  for(suffix in c(".earlyRep",".intermediateRep",".lateRep")) {
+    muts <- getMutTable(mutFolder, suffix = paste0(header, suffix, ".vcf"))
+    if (adjust == F) {
+      sigs <- cosmic_signatures_v3_custom10
+    }
+    else {
+      opp_to <- getOppTable(mutFolder, suffix = paste0(suffix, ".tri_freqs.pyr.tsv"))  %>% 
+    summarise_all(list(mean))
+      toMat <- bind_rows(replicate(nrow(cosmic_signatures_v3_custom10), opp_to, simplify = FALSE))
+      sigs <- convert_signatures(cosmic_signatures_v3_custom10, 
+                                     opportunities_from = "human-genome",
+                                     opportunities_to = toMat)
+    }
+    selected_signatures <- sigs[rownames(sigs) %in% sigChoice,]
+    fit <- fit_signatures(counts = muts, signatures = selected_signatures,
+                          iter = 20000, 
+                          warmup = 10000, 
+                          model="poisson",
+                          chains = 2, 
+                          seed = 1756)
+    exposures <- retrieve_pars(fit, par = "exposures")[[1]] %>% 
+      mutate(timing = str_remove(suffix, "."))
+    exposureDF <- bind_rows(exposureDF, exposures)
+  }
+  return(exposureDF)
+}
+
+
+#Testes and colon. Adjust = T to account for coverage/rep regions
+expo_testes <- getExposureCustom(mutFolder = "Testes/", adjust = T, sigChoice = c("SBS1", "SBS5", "SBS18"))
+expo_colon <- getExposureCustom(mutFolder = "Colon/",  adjust = T, sigChoice = c("SBS1", "SBS5", "SBS18"))
+
+#Lung never-smoker(normal) and exsmoker
+expo_lungNormal <- getExposureCustom(mutFolder = "Lung_Normal/", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+expo_lungExsmoker <- getExposureCustom(mutFolder = "Lung_ExSmoker/",  adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+
+#Trios NOTE: not yet adjusted for coverage
+expo_trios <- getExposureCustom(mutFolder = "Genome/", adjust = T, header = "trios", sigChoice = c("SBS1", "SBS5"))
+expo_triosPat <- getExposureCustom(mutFolder = "Genome/", adjust = T, header = "trios_pat", sigChoice = c("SBS1", "SBS5"))
+expo_triosMat <- getExposureCustom(mutFolder = "Genome/", adjust = T, header = "trios_mat", sigChoice = c("SBS1", "SBS5"))
+
+#PolMutants
+expo_PolE <- getExposureCustom(mutFolder = "Sperm/", adjust = T, header = "22", sigChoice = c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
+expo_PolD <- getExposureCustom(mutFolder = "Sperm/", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
+
+
+```
+
+## Scaled Plot
+```{r, fig.height=6, fig.width=6}
+pScaled <- function(expoDF, exp = list(), obs = list(), tissue, sigChoice = c("SBS1", "SBS5", "SBS18"), colours = c("#F8766D", "#00BA38", "#619CFF")) {
+  p0 <- expoDF %>% 
+    mutate(timing = str_remove(timing, "Rep")) %>% 
+    group_by(timing) %>% 
+    summarise_all(list(mean)) %>% 
+    mutate(expected = exp) %>% 
+    mutate(observed = obs) 
+  p <- p0 %>% 
+    #Convert to proportion of expected
+    mutate_at(.vars = sigChoice, list(~(observed*.)/expected)) %>% 
+    select(-expected, -observed) %>% 
+    pivot_longer(-timing, names_to = "signature") %>% 
+    mutate(signature = fct_relevel(signature, rev(sigChoice))) %>% 
+    ggplot(aes(fill = signature, y = value, x = timing)) +
+        geom_bar(colour = "black", position="stack", stat="identity") +
+        #scale_fill_manual(values=colours) +
+        ylim(0,1.5) +
+        ylab("Proportion of Expected") +
+        xlab(tissue) +
+        theme_bw()
+  return(p)
+}
+testesScaled <- pScaled(expo_testes, exp = c(5360.486, 7549.530, 5421.352), obs = c(5609, 7439, 5329), tissue = "Testes")
+colonScaled <- pScaled(expo_colon, exp = c(6444.959, 9075.888, 7445.242), obs = c(4384, 7982, 9716), tissue = "Colon")
+
+testesScaled + colonScaled + plot_layout(guides = 'collect')
+
+triosScaled <- pScaled(expo_trios, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "Trios", sigChoice = c("SBS1", "SBS5"))
+triosPatScaled <- pScaled(expo_triosPat, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "triosPat", sigChoice = c("SBS1", "SBS5"))
+triosMatScaled <- pScaled(expo_triosMat, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "triosMat", sigChoice = c("SBS1", "SBS5"))
+
+triosScaled + triosPatScaled + triosMatScaled + plot_layout(guides = 'collect')
+
+lungNormalScaled <- pScaled(expo_lungNormal, exp = c(60525.507, 85258.479, 75734.575), obs = c(53172, 86600, 86013), tissue = "lungNormal", sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungExsmokerScaled <- pScaled(expo_lungExsmoker, exp = c(175233.711, 246840.722, 219267.072), obs = c(118218, 225768, 308480), tissue = "lungExsmoker", sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungNormalScaled + lungExsmokerScaled + plot_layout(guides = 'collect')
+
+testesScaled + colonScaled + lungNormalScaled + lungExsmokerScaled + plot_layout(guides = 'collect')
+
+#PolE and D
+PolErep <- repTiming_dist %>% 
+  filter(sample == "POLE_Sperm") 
+PolDrep <- repTiming_dist %>% 
+  filter(sample == "POLD1_Sperm") 
+  
+PolEScaled <- pScaled(expo_PolE, exp = PolErep$expected, obs = PolErep$observed, tissue = "PolE Sperm", sigChoice =  c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
+PolDScaled <- pScaled(expo_PolD, exp = PolDrep$expected, obs = PolDrep$observed, tissue = "PolD1 Sperm", sigChoice = c("SBS1","SBS5", "SBS10C", "SBS28"))
+
+png('plots/repTimePolSperm.png', height=5, width=7, units = "in", res = 300)
+PolEScaled + PolDScaled 
+dev.off()
+
+pdf('plots/repTimePolSperm.pdf', height=5, width=7)
+PolEScaled + PolDScaled 
+dev.off()
+
+png('plots/repTimeSigsTestesColon.png', height=5, width=7, units = "in", res = 300)
+colonScaled + testesScaled + plot_layout(guides = 'collect')
+dev.off()
+
+pdf('plots/repTimeSigsTestesColon.pdf', height=5, width=7)
+colonScaled + testesScaled + plot_layout(guides = 'collect')
+dev.off()
+```
+
+## Significance
+```{r pVal}
+rateRatio <- function(expoDF, obs = list(), sigChoice = c("SBS1", "SBS5", "SBS18"), binSizes = c(812673300, 821685495)) {
+  countDF <- expoDF %>% 
+    group_by(timing) %>% 
+    summarise_all(list(mean)) %>% 
+    mutate(observed = obs) %>% 
+    mutate_at(.vars = sigChoice, list(~round(observed*.))) %>% 
+    filter(timing != "intermediateRep") %>% 
+    select(-observed, -timing) %>% 
+    mutate(binSize = binSizes) 
+  pVals <- tibble(signature = sigChoice, pVal = NA)
+  for (sig in (1:length(sigChoice))) {
+    pVals$pVal[sig] = formatC(rateratio.test::rateratio.test(pull(countDF,sig), countDF$binSize)$p.value)
+  }
+  return(pVals)
+}
+testesRR <- rateRatio(expo_testes, obs = c(5609, 7439, 5329))
+testesRR$pVal
+colonRR <- rateRatio(expo_colon, obs = c(4384, 7982, 9716))
+colonRR$pVal
+
+triosRR <- rateRatio(expo_trios, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosRR$pVal
+triosPatRR <- rateRatio(expo_triosPat, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosPatRR$pVal
+triosMatRR <- rateRatio(expo_triosMat, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosMatRR$pVal
+
+lungNormalRR <- rateRatio(expo_lungNormal, obs = c(53172, 86600, 86013), sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungNormalRR$pVal
+lungExsmokerRR <- rateRatio(expo_lungExsmoker, obs = c(118218, 225768, 308480), sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungExsmokerRR$pVal
+
+PolERR <- rateRatio(expo_PolE, obs = PolErep$observed, sigChoice =  c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
+PolERR$pVal
+PolDRR <- rateRatio(expo_PolD, obs = PolDrep$observed, sigChoice = c("SBS1","SBS5", "SBS10C", "SBS28"))
+PolDRR$pVal
+
+allPvals <- bind_rows(testesRR %>% mutate(tissue = "testes"),
+                      colonRR %>% mutate(tissue = "colon"),
+                      PolERR %>% mutate(tissue = "PolE"),
+                      PolDRR %>% mutate(tissue = "PolD")) %>% 
+  select(tissue, signature, pVal)
+write_tsv(allPvals, "rateRatioPvals.txt")
+
+chiTable <- function(expoDF, obs = list(), sigChoice = c("SBS1", "SBS5", "SBS18")) {
+  chiDF <- expoDF %>% 
+    group_by(timing) %>% 
+    summarise_all(list(mean)) %>% 
+    mutate(observed = obs) %>% 
+    mutate_at(.vars = sigChoice, list(~observed*.)) %>% 
+    select(-timing, -observed)
+  p <- formatC(chisq.test(chiDF)$p.value)
+  return(p)
+}
+testesChi <- chiTable(expo_testes, obs = c(5609, 7439, 5329))
+testesChi
+
+colonChi <- chiTable(expo_colon,obs = c(4384, 7982, 9716))
+colonChi
+
+triosChi <- chiTable(expo_trios, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosChi
+triosPatChi <- chiTable(expo_triosPat, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosPatChi
+triosMatChi <- chiTable(expo_triosMat, obs = c(64886, 87697, 63358), sigChoice = c("SBS1", "SBS5"))
+triosMatChi
+
+lungNormalChi <- chiTable(expo_lungNormal, obs = c(53172, 86600, 86013), sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungNormalChi
+lungExsmokerChi <- chiTable(expo_lungExsmoker, obs = c(118218, 225768, 308480), sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
+lungExsmokerChi
+
+PolEChi <- chiTable(expo_PolE, obs = PolErep$observed, sigChoice =  c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
+PolEChi
+PolDChi <- chiTable(expo_PolD, obs = PolDrep$observed, sigChoice = c("SBS1","SBS5", "SBS10C", "SBS28"))
+PolDChi 
+
+
+```
+
 # Other Analysis
-## Custom Rep Timing
+## Density Rep Timing
 ```{r density, fig.height=5, fig.width=4}
 repTimeH9es <- import("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeFsuRepliChip/wgEncodeFsuRepliChipH9esWaveSignalRep1.bigWig", format="BigWig")
 repTimeH9es <- keepStandardChromosomes(repTimeH9es, pruning.mode="coarse")
@@ -831,208 +1951,6 @@ densityLCL <- repTimeDensity(LCL1mb, LCL1mb_gr) %>% ggplot(aes(x=repTime, color 
 densityH9es1  / densityLCL / densityGm12878 + plot_layout(guides = 'collect')
 ```
 
-## SigFit Dataset
-```{r SigFitData}
-repTimingFolder = "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/ReplicationTiming/SigFit/"
-pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
-
-#Use signatures from cosmic but edit 10b and add 10c to match signatures from POL mutant paper
-data("cosmic_signatures_v3")
-polSigs <- read.table("POLpaperSignatures.txt") %>% 
-  select(SBS10B,SBS10C) %>% 
-  t()
-cosmic_signatures_v3_custom10 <- rbind(cosmic_signatures_v3, polSigs)
-
-
-getMutTable <- function(mutFolder, suffix) {
-  files <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
-  samples <- str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
-  VCF <- read_vcfs_as_granges(files, samples, ref_genome, check_alleles=T)
-  muts <- t(mut_matrix(vcf_list = VCF, ref_genome))
-  return(muts)
-}
-
-getOppTable <- function(mutFolder, suffix) {
-  pyrCountFiles <- list.files(paste0(repTimingFolder, mutFolder), pattern = suffix, full.names = TRUE)
-  samples <-  str_remove(list.files(paste0(repTimingFolder, mutFolder), pattern = suffix), suffix)
-  opps <- NULL
-  for(i in pyrCountFiles) {
-    pyrDF <- read_tsv(i, col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2]
-    opps <- bind_cols(opps, pyrDF)
-  }
-  opps <- as_tibble(t(opps), rownames = NULL, colnames = NULL)
-  return(opps)
-}
-
-
-#Default sigs 1, 5 and 18 for testes and colon
-getExposureCustom <- function(mutFolder, suffix, adjust = F, header = "", sigChoice = c("SBS1", "SBS5", "SBS18")) {
-  muts <- getMutTable(mutFolder, suffix = paste0(header, suffix, ".vcf"))
-  print(sum(muts))
-  if (adjust == F) {
-    sigs <- cosmic_signatures_v3_custom10
-  }
-  else {
-    opp_to <- getOppTable(mutFolder, suffix = paste0(suffix, ".tri_freqs.pyr.tsv"))  %>% 
-  summarise_all(list(mean))
-    toMat <- bind_rows(replicate(nrow(cosmic_signatures_v3_custom10), opp_to, simplify = FALSE))
-    sigs <- convert_signatures(cosmic_signatures_v3_custom10, 
-                                   opportunities_from = "human-genome",
-                                   opportunities_to = toMat)
-  }
-  selected_signatures <- sigs[rownames(sigs) %in% sigChoice,]
-  fit <- fit_signatures(counts = muts, signatures = selected_signatures,
-                        iter = 20000, 
-                        warmup = 10000, 
-                        model="poisson",
-                        chains = 2, 
-                        seed = 1756)
-  exposures <- retrieve_pars(fit, par = "exposures") [[1]]
-  return(exposures)
-}
-
-
-#Testes and colon. N = no adjustment for coverage/rep regions
-ptestesEarlyN <- getExposureCustom(mutFolder = "Testes/", suffix = ".earlyRep")
-ptestesEarly <- getExposureCustom(mutFolder = "Testes/", suffix = ".earlyRep", adjust = T)
-ptestesIntermediateN <- getExposureCustom(mutFolder = "Testes/", suffix = ".intermediateRep")
-ptestesIntermediate <- getExposureCustom(mutFolder = "Testes/", suffix = ".intermediateRep", adjust = T)
-ptestesLateN <- getExposureCustom(mutFolder = "Testes/", suffix = ".lateRep")
-ptestesLate <- getExposureCustom(mutFolder = "Testes/", suffix = ".lateRep", adjust = T)
-
-pcolonEarlyN <- getExposureCustom(mutFolder = "Colon/", suffix = ".earlyRep")
-pcolonEarly <- getExposureCustom(mutFolder = "Colon/", suffix = ".earlyRep", adjust = T)
-pcolonIntermediateN <- getExposureCustom(mutFolder = "Colon/", suffix = ".intermediateRep")
-pcolonIntermediate <- getExposureCustom(mutFolder = "Colon/", suffix = ".intermediateRep", adjust = T)
-pcolonLateN <- getExposureCustom(mutFolder = "Colon/", suffix = ".lateRep")
-pcolonLate <- getExposureCustom(mutFolder = "Colon/", suffix = ".lateRep", adjust = T)
-
-#Lung never-smoker(normal) and exsmoker
-plungNormalEarly <- getExposureCustom(mutFolder = "Lung_Normal/", suffix = ".earlyRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-plungNormalIntermediate <- getExposureCustom(mutFolder = "Lung_Normal/", suffix = ".intermediateRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-plungNormalLate <- getExposureCustom(mutFolder = "Lung_Normal/", suffix = ".lateRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-plungExsmokerEarly <- getExposureCustom(mutFolder = "Lung_ExSmoker/", suffix = ".earlyRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-plungExsmokerIntermediate <- getExposureCustom(mutFolder = "Lung_ExSmoker/", suffix = ".intermediateRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-plungExsmokerLate <- getExposureCustom(mutFolder = "Lung_ExSmoker/", suffix = ".lateRep", adjust = T, sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-#General Genomes
-ptriosEarly <- getExposureCustom(mutFolder = "Genome/", suffix = ".earlyRep", adjust = T, header = "trios")
-ptriosIntermediate <- getExposureCustom(mutFolder = "Genome/", suffix = ".intermediateRep", adjust = T, header = "trios")
-ptriosLate <- getExposureCustom(mutFolder = "Genome/", suffix = ".lateRep", adjust = T, header = "trios")
-
-ptriosPatEarly <- getExposureCustom(mutFolder = "Genome/", suffix = ".earlyRep", adjust = T, header = "trios_pat")
-ptriosPatIntermediate <- getExposureCustom(mutFolder = "Genome/", suffix = ".intermediateRep", adjust = T, header = "trios_pat")
-ptriosPatLate <- getExposureCustom(mutFolder = "Genome/", suffix = ".lateRep", adjust = T, header = "trios_pat")
-
-ptriosMatEarly <- getExposureCustom(mutFolder = "Genome/", suffix = ".earlyRep", adjust = T, header = "trios_mat")
-ptriosMatIntermediate <- getExposureCustom(mutFolder = "Genome/", suffix = ".intermediateRep", adjust = T, header = "trios_mat")
-ptriosMatLate <- getExposureCustom(mutFolder = "Genome/", suffix = ".lateRep", adjust = T, header = "trios_mat")
-
-#PolMutants
-pPolEEarly <- getExposureCustom(mutFolder = "Sperm/", suffix = ".earlyRep", adjust = T, header = "22", sigChoice = c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
-pPolEIntermediate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".intermediateRep", adjust = T, header = "22", sigChoice = c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
-pPolELate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".lateRep", adjust = T, header = "22", sigChoice = c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
-
-pPolDEarly <- getExposureCustom(mutFolder = "Sperm/", suffix = ".earlyRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
-pPolDIntermediate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".intermediateRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
-pPolDLate <- getExposureCustom(mutFolder = "Sperm/", suffix = ".lateRep", adjust = T, header = "23", sigChoice = c("SBS1","SBS5","SBS10C","SBS28"))
-
-```
-
-
-
-## SigFit Plotting
-```{r SigFit, fig.height=7, fig.width=10}
-p1 <- function(exposures, timing = "samples") {
-    exposurePlot <- tibble(sample = row.names(exposures), exposures) %>% 
-      pivot_longer(-sample, names_to = "signature") %>% 
-      mutate(signature = fct_relevel(signature, rev(sigChoice))) %>% 
-      ggplot(aes(fill = signature, y = value, x = sample)) +
-        geom_bar(position="stack", stat="identity") +
-        ylab("Proportion") +
-        xlab(timing) +
-        theme_minimal() +
-        #theme(axis.text.x = element_blank())
-        theme(axis.text.x = element_text(angle = 90))
-  return(exposurePlot)
-}
-
-#Plot for each sample
-sigChoice <-  c("SBS1","SBS5", "SBS18")
-(p1(ptestesEarlyN, timing = "Early") + p1(ptestesIntermediateN, timing = "Intermediate") + p1(ptestesLateN, timing = "Late"))/(p1(pcolonEarlyN, timing = "Early") + p1(pcolonIntermediateN, timing = "Intermediate") + p1(pcolonLateN, timing = "Late")) + plot_layout(guides = 'collect')
-(p1(ptestesEarly, timing = "Early") + p1(ptestesIntermediate, timing = "Intermediate") + p1(ptestesLate, timing = "Late"))/(p1(pcolonEarly, timing = "Early") + p1(pcolonIntermediate, timing = "Intermediate") + p1(pcolonLate, timing = "Late")) + plot_layout(guides = 'collect')
-#Pol sperm
-(p1(pPolEEarly, timing = "Early") + p1(pPolEIntermediate, timing = "Intermediate") + p1(pPolELate, timing = "Late"))/(p1(pPolDEarly, timing = "Early") + p1(pPolDIntermediate, timing = "Intermediate") + p1(pPolDLate, timing = "Late")) + plot_layout(guides = 'collect')
-
-# (p1(ptriosEarly, timing = "Early") + p1(ptriosIntermediate, timing = "Intermediate") + p1(ptriosLate, timing = "Late")) / 
-#   (p1(ptriosPatEarly, timing = "Early") + p1(ptriosPatIntermediate, timing = "Intermediate") + p1(ptriosPatLate, timing = "Late")) /
-#   (p1(ptriosMatEarly, timing = "Early") + p1(ptriosMatIntermediate, timing = "Intermediate") + p1(ptriosMatLate, timing = "Late")) +
-#   plot_layout(guides = 'collect')
-sigChoice <-  c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26")
-(p1(plungNormalEarly, timing = "Early") + p1(plungNormalIntermediate, timing = "Intermediate") + p1(plungNormalLate, timing = "Late"))/(p1(plungExsmokerEarly, timing = "Early") + p1(plungExsmokerIntermediate, timing = "Intermediate") + p1(plungExsmokerLate, timing = "Late")) + plot_layout(guides = 'collect')
-
-```
-
-## SigFit Scaled
-```{r, fig.height=6, fig.width=6}
-pScaled <- function(early, int, late, exp = list(), obs = list(), tissue, sigChoice = c("SBS1", "SBS5", "SBS18"), colours = c("#F8766D", "#00BA38", "#619CFF")) {
-  p0 <- early %>% mutate(timing = "Early") %>% 
-    bind_rows(int %>% mutate(timing = "Intermediate")) %>% 
-    bind_rows(late %>% mutate(timing = "Late")) %>% 
-    group_by(timing) %>% 
-    summarise_all(list(mean)) %>% 
-    mutate(expected = exp) %>% 
-    mutate(observed = obs) 
-  p <- p0 %>% 
-    #Convert to proportion of expected
-    mutate_at(.vars = sigChoice, list(~(observed*.)/expected)) %>% 
-    select(-expected, -observed) %>% 
-    pivot_longer(-timing, names_to = "signature") %>% 
-    mutate(signature = fct_relevel(signature, rev(sigChoice))) %>% 
-    ggplot(aes(fill = signature, y = value, x = timing)) +
-        geom_bar(colour = "black", position="stack", stat="identity") +
-        #scale_fill_manual(values=colours) +
-        ylim(0,1.5) +
-        ylab("Proportion of Expected") +
-        xlab(tissue) +
-        theme_bw()
-  return(p)
-}
-testesScaled <- pScaled(ptestesEarly, ptestesIntermediate, ptestesLate, exp = c(5360.486, 7549.530, 5421.352), obs = c(5609, 7439, 5329), tissue = "Testes")
-colonScaled <- pScaled(pcolonEarly, pcolonIntermediate, pcolonLate, exp = c(6444.959, 9075.888, 7445.242), obs = c(4384, 7982, 9716), tissue = "Colon")
-
-testesScaled + colonScaled + plot_layout(guides = 'collect')
-
-triosScaled <- pScaled(ptriosEarly, ptriosIntermediate, ptriosLate, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "Trios")
-triosPatScaled <- pScaled(ptriosPatEarly, ptriosPatIntermediate, ptriosPatLate, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "triosPat")
-triosMatScaled <- pScaled(ptriosMatEarly, ptriosMatIntermediate, ptriosMatLate, exp = c(57850.367, 81490.178, 72387.216), obs = c(64886, 87697, 63358), tissue = "triosMat")
-
-triosScaled + triosPatScaled + triosMatScaled + plot_layout(guides = 'collect')
-
-lungNormalScaled <- pScaled(plungNormalEarly, plungNormalIntermediate, plungNormalLate, exp = c(60525.507, 85258.479, 75734.575), obs = c(53172, 86600, 86013), tissue = "lungNormal", sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-lungExsmokerScaled <- pScaled(plungExsmokerEarly, plungExsmokerIntermediate, plungExsmokerLate, exp = c(175233.711, 246840.722, 219267.072), obs = c(118218, 225768, 308480), tissue = "lungExsmoker", sigChoice = c("SBS1","SBS2","SBS4","SBS5","SBS12", "SBS13", "SBS26"))
-lungNormalScaled + lungExsmokerScaled + plot_layout(guides = 'collect')
-
-testesScaled + colonScaled + lungNormalScaled + lungExsmokerScaled + plot_layout(guides = 'collect')
-
-#PolE and D
-PolErep <- repTiming_dist %>% 
-  filter(sample == "POLE_Sperm") 
-PolDrep <- repTiming_dist %>% 
-  filter(sample == "POLD1_Sperm") 
-  
-PolEScaled <- pScaled(pPolEEarly, pPolEIntermediate, pPolELate, exp = PolErep$expected, obs = PolErep$observed, tissue = "PolE Sperm", sigChoice =  c("SBS1","SBS5","SBS10a", "SBS10B", "SBS28"))
-PolDScaled <- pScaled(pPolDEarly, pPolDIntermediate, pPolDLate, exp = PolDrep$expected, obs = PolDrep$observed, tissue = "PolD1 Sperm", sigChoice = c("SBS1","SBS5", "SBS10C", "SBS28"))
-
-png('plots/repTimePolSperm.png', height=5, width=7, units = "in", res = 300)
-PolEScaled + PolDScaled 
-dev.off()
-
-png('plots/repTimeSigsTestesColon.png', height=5, width=7, units = "in", res = 300)
-colonScaled + testesScaled + plot_layout(guides = 'collect')
-dev.off()
-
-```
-
 ## Custom Hotspot
 ```{r}
 strength = as.numeric(regions_list[[1]]$name)
@@ -1060,48 +1978,107 @@ ptestesRecomb + ptrioRecomb + ptrioPatRecomb + ptrioMatRecomb
 ptestesRecomb2 + ptrioRecomb2 + ptrioPatRecomb2 + ptrioMatRecomb2
 ```
 
+# Methylation 
+## Process RRBS
+```{bash processRRBS, eval = FALSE}
 
-## Methylation Process Files
-```{r}
-methPath <- "/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/"
-
-#Testes RRBS
-noMethTestis <- read_tsv("methylationTestis.bed", col_types = 'cccccccccccd') %>% 
-  filter(percentMeth == 0) %>% 
-  select(c(2:7))
-write_tsv(noMethTestis, paste0(methPath, "testesNoMeth.bed"), col_names = F)
-methTestis <- read_tsv("methylationTestis.bed", col_types = 'cccccccccccd') %>% 
-  filter(percentMeth > 0)%>% 
-  select(c(2:7))
-write_tsv(methTestis, paste0(methPath, "testesMeth.bed"), col_names = F)
-
-#Lung RRBS
-noMethLung <- read_tsv("lungRRBS1.bed", col_types = 'cccccccccccd') %>% 
-  filter(percentMeth == 0) %>% 
-  select(c(2:7))
-write_tsv(noMethLung, paste0(methPath, "lungNoMeth.bed"), col_names = F)
-methLung <- read_tsv("lungRRBS1.bed", col_types = 'cccccccccccd') %>% 
-  filter(percentMeth > 0)%>% 
-  select(c(2:7))
-write_tsv(methLung, paste0(methPath, "lungMeth.bed"), col_names = F)
-
-#Colon WGBS
-#awk '$10>2' ENCFF424XKF.bed > colonCov3.bed
-#awk '$11>0' colonCov3.bed | cut -f 1-6 > colonMeth_38.bed
-#awk '$11==0' colonCov3.bed | cut -f 1-6 > colonNoMeth_38.bed
-#liftOver /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/colonMeth_38.bed hg38ToHg19.over.chain.gz /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/colonMeth_37.bed /lustre/scratch119/casm/team294rr/rs30/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/colonMeth_38_unmapped.bed
-
-# methColon <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/colonMeth_19.bed", col_names = F, col_types = 'ciiccc')
-# noMethColon <- read_tsv("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split/colonMeth_19.bed", col_names = F, col_types = 'ciiccc')
+paste testisRRBS.bed testisRRBS.bed | awk '$10>2' | cut -f 1-4,11,17 > testisRRBS_cov3_19.bed
 
 ```
 
-## Methylation Enrichment
-```{r, fig.height=4, fig.width=4}
+## WGBS Cov 3
+```{bash processWGBScov3, eval = FALSE}
+#!/bin/bash
+#Generic convert
+input="$1"
+tissue="$2"
+
+#Select min coverage 3, replace coverage count with methylation %
+paste "$input" "$input" | awk '$10>2' | cut -f 1-4,11,17 > liftover/"$tissue"_cov3_38.bed
+
+#LiftOver to hg19
+module load liftOverReport/2.1.2
+
+liftOver $PIPELINE/methylation/downloads/liftover/"$tissue"_cov3_38.bed $PIPELINE/methylation/downloads/liftover/hg38ToHg19.over.chain.gz $PIPELINE/methylation/cov3/"$tissue"_cov3_19.bed $PIPELINE/methylation/downloads/liftover/"$tissue"_cov3_38_unmapped.bed
+
+
+#Farm job submissions
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh colonWGBS_38.bed colon
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh skinWGBS_Female51_38.bed skin
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh stomachWGBS_female51_38.bed stomach
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh smallBowel_Female34_38.bed smallBowel
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh adrenalGlandWGBS_Male54_38.bed adrenalGland
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov3Convert.sh testisWGBS_Male54_38.bed testis
+```
+
+## WGBS Cov 5
+```{bash processWGBScov5, eval = FALSE}
+#!/bin/bash
+#Generic convert
+input="$1"
+tissue="$2"
+
+#Select min coverage 3, replace coverage count with methylation %
+paste "$input" "$input" | awk '$10>4' | cut -f 1-4,11,17 > liftover/"$tissue"_cov5_38.bed
+
+#LiftOver to hg19
+module load liftOverReport/2.1.2
+
+liftOver $PIPELINE/methylation/downloads/liftover/"$tissue"_cov5_38.bed $PIPELINE/methylation/downloads/liftover/hg38ToHg19.over.chain.gz $PIPELINE/methylation/cov5/"$tissue"_cov5_19.bed $PIPELINE/methylation/downloads/liftover/"$tissue"_cov5_38_unmapped.bed
+
+
+#Farm job submissions
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh colonWGBS_38.bed colon
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh skinWGBS_Female51_38.bed skin
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh stomachWGBS_female51_38.bed stomach
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh smallBowel_Female34_38.bed smallBowel
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh adrenalGlandWGBS_Male54_38.bed adrenalGland
+bsub -o out.%J -e err.%J -q small -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./cov5Convert.sh testisWGBS_Male54_38.bed testis
+```
+
+## WGBS binary
+```{bash processWGBS, eval = FALSE}
+#!/bin/bash
+#Generic convert
+input="$1"
+tissue="$2"
+
+#Select min coverage 3, split into any vs no methylation
+awk '$10>2' "$input" | awk '$11>0' | cut -f 1-6 > liftover/"$tissue"_Meth_38.bed
+awk '$10>2' "$input" | awk '$11==0' | cut -f 1-6 > liftover/"$tissue"_NoMeth_38.bed
+
+#LiftOver to hg19
+module load liftOverReport/2.1.2
+
+liftOver $PIPELINE/methylation/downloads/liftover/"$tissue"_Meth_38.bed $PIPELINE/methylation/downloads/liftover/hg38ToHg19.over.chain.gz $PIPELINE/methylation/split/"$tissue"_Meth_19.bed $PIPELINE/methylation/downloads/liftover/"$tissue"_Meth_38_unmapped.bed
+
+liftOver $PIPELINE/methylation/downloads/liftover/"$tissue"_NoMeth_38.bed $PIPELINE/methylation/downloads/liftover/hg38ToHg19.over.chain.gz $PIPELINE/methylation/split/"$tissue"_NoMeth_19.bed $PIPELINE/methylation/downloads/liftover/"$tissue"_NoMeth_38_unmapped.bed
+
+#Farm job submissions
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh colonWGBS_38.bed colon
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh skinWGBS_Female51_38.bed skin
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh stomachWGBS_female51_38.bed stomach
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh smallBowel_Female34_38.bed smallBowel
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh adrenalGlandWGBS_Male54_38.bed adrenalGland
+bsub -o out.%J -e err.%J -q normal -n 1 -R 'select[mem>=1000] rusage[mem=1000]' -M1000 ./methConvert.sh testisWGBS_Male54_38.bed testis
+
+```
+
+```{r processWGBS_R}
+
+cpg_vcfs <- get_CpG_vcfs(VCFs, ref_genome)
+colonMeth <- meth_regions_list[[3]]
+
+```
+
+
+## Cov 3
+```{r methCov3, fig.height=6, fig.width=10}
+#Coverage 3
 # regions bed files
-meth_regions_files = list.files("/Users/mn7/volumes/rs30_lustre/Testicular_project/Final_Analyses/Unmatched_WGS/Signature_Analyses/Methylation/split", full.names = T)
-print(meth_regions_files)
-# 
+# meth_regions_files = list.files(paste0(path, "methylation/cov3"), pattern = "_19.bed", full.names = T)
+# print(meth_regions_files)
+
 # # region bed files
 # meth_regions_list=list()
 # for(i in meth_regions_files){
@@ -1112,10 +2089,308 @@ print(meth_regions_files)
 #   meth_regions_list[[i]] <- meth_region
 # }
 # 
-# names(meth_regions_list) = c("colonMeth", "colonNoMeth", "lungMeth", "lungNoMeth","testesMeth", "testesNoMeth")
-# save(meth_regions_list, file="meth_regions_list.RData")
+# names(meth_regions_list) = str_remove(list.files(paste0(path, "methylation/cov3"), pattern = "_cov3_19.bed", full.names = F), "_cov3_19.bed")
+# save(meth_regions_list, file=paste0(path,"methylation/cov3/meth_regions_list.RData"))
+load(paste0(path,"methylation/cov3/meth_regions_list.RData"))
 
-load("meth_regions_list.RData")
+methGroups <- function(index) {
+  meth_surveyed_groups = list()
+  tissue_regions <- meth_regions_list[[index]]
+  methpercent <- tissue_regions@elementMetadata@listData$score
+  meth_surveyed_groups[[1]] <- tissue_regions[methpercent < 20]
+  meth_surveyed_groups[[2]] <- tissue_regions[methpercent >= 20 & methpercent < 40]
+  meth_surveyed_groups[[3]] <- tissue_regions[methpercent >= 40 & methpercent < 60]
+  meth_surveyed_groups[[4]] <- tissue_regions[methpercent >= 60 & methpercent < 80]
+  meth_surveyed_groups[[5]] <- tissue_regions[methpercent >= 80]
+  names(meth_surveyed_groups) <- c("Group1","Group2","Group3","Group4","Group5" )
+  return(meth_surveyed_groups)
+}
+
+
+colonMeth <- methGroups(index = 2)
+colon_dist <- genomic_distribution(panBodyVCF[c(2,6:8)], panBodySurveyed[c(2,6:8)], colonMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+colonRR_dist <- genomic_distribution(colonVCF, colonSurveyed, colonMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pColonMeth <- ggplot(colon_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+pColonRRMeth <- ggplot(colonRR_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+
+colon_dist <- genomic_distribution(panBodyVCF, PanBodySurveyedList, colonMeth) %>% 
+  group_by(region) %>% 
+  summarize(observed = mean(observed), surveyed_region_length = mean(surveyed_region_length)) %>% 
+  mutate(rate = observed/surveyed_region_length) %>% 
+  mutate(sample = "Mean_Testis_RR")
+
+colon_dist = colon_dist %>% 
+    group_by(region) %>% 
+  summarize(observed = mean(observed), surveyed_region_length = mean(surveyed_region_length)) %>% 
+  mutate(rate = observed/surveyed_region_length) %>% 
+  mutate(sample = "Mean_Testis_RR")
+pColonMeth <- ggplot(colon_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+pColonMeth
+
+skinMeth <- methGroups(index = 3)
+skin_dist <- genomic_distribution(panBodyVCF[17:19], panBodySurveyed[17:19], skinMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pSkinMeth <- ggplot(skin_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+
+smallBowelMeth <- methGroups(index = 4)
+smallBowel_dist <- genomic_distribution(panBodyVCF[20:22], panBodySurveyed[20:22], smallBowelMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pSmallBowelMeth <- ggplot(smallBowel_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+
+stomachMeth <- methGroups(index = 5)
+stomach_dist <- genomic_distribution(panBodyVCF[23:24], panBodySurveyed[23:24], stomachMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pStomachMeth <- ggplot(stomach_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+
+testesMeth <- methGroups(index = 6)
+testes_dist <- genomic_distribution(panBodyVCF[25], panBodySurveyed[25], testesMeth) %>%
+  mutate(rate = observed/surveyed_region_length)
+testesRR_dist <- genomic_distribution(testesVCF, testesSurveyed, testesMeth) %>%
+  group_by(region) %>% 
+  summarize(observed = mean(observed), surveyed_region_length = mean(surveyed_region_length)) %>% 
+  mutate(rate = observed/surveyed_region_length) %>% 
+  mutate(sample = "Mean_Testis_RR")
+testisJoined = testes_dist %>% 
+  bind_rows(testesRR_dist)
+pTestesMeth <- ggplot(testisJoined, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+pTestesRRMeth <- ggplot(testesRR_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point() +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank()) + 
+  ylab("C>T at CpG") 
+
+
+
+
+(pColonMeth + pColonRRMeth) / (pSmallBowelMeth + pStomachMeth) / (pSkinMeth + pTestesMeth)
+
+
+png(paste0(plotsPath, 'methylationCov3.png'), height=6, width=11, units = "in", res = 300)
+(pColonMeth + pColonRRMeth) / (pSmallBowelMeth + pStomachMeth) / (pSkinMeth + pTestesRRMeth)
+dev.off()
+
+
+```
+
+## Cov 3 RRBS
+```{r methCov3, fig.height=4, fig.width=8}
+#Coverage 3
+methGroupsRRBS <- function(methFile) {
+  meth_surveyed_groups = list()
+  tissue_regions <- methFile
+  methpercent <- tissue_regions@elementMetadata@listData$score
+  meth_surveyed_groups[[1]] <- tissue_regions[methpercent < 20]
+  meth_surveyed_groups[[2]] <- tissue_regions[methpercent >= 20 & methpercent < 40]
+  meth_surveyed_groups[[3]] <- tissue_regions[methpercent >= 40 & methpercent < 60]
+  meth_surveyed_groups[[4]] <- tissue_regions[methpercent >= 60 & methpercent < 80]
+  meth_surveyed_groups[[5]] <- tissue_regions[methpercent >= 80]
+  names(meth_surveyed_groups) <- c("Group1","Group2","Group3","Group4","Group5" )
+  return(meth_surveyed_groups)
+}
+
+testesRRBSMeth0 <-  import(paste0(path, "methylation/cov3/rrbs/testisRRBS_cov3_19.bed"))
+testesRRBSMeth <- methGroupsRRBS(testesRRBSMeth0)
+testesRRBS_dist <- genomic_distribution(panBodyVCF[25], panBodySurveyed[25], testesRRBSMeth) %>%
+  mutate(rate = observed/surveyed_region_length)
+testesRRBSRR_dist <- genomic_distribution(testesVCF, testesSurveyed, testesRRBSMeth) %>%
+  mutate(rate = observed/surveyed_region_length)
+ptestesRRBSMeth <- ggplot(testesRRBS_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+ptestesRRBSRRMeth <- ggplot(testesRRBSRR_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+ptestesRRBSMeth
+ptestesRRBSRRMeth
+```
+
+
+## Cov 5
+```{r methCov5, fig.height=4, fig.width=12}
+#Coverage 5
+# regions bed files
+meth_regions_files5 = list.files(paste0(path, "methylation/cov5"), pattern = "_19.bed", full.names = T)
+print(meth_regions_files5)
+
+# region bed files
+meth_regions_list5=list()
+for(i in meth_regions_files5){
+  print(paste("Importing", i))
+  meth_region5 <- import(i)
+  ## Import the file using rtracklayer and use the UCSC naming standard
+  seqlevelsStyle(meth_region5) <- "UCSC"
+  meth_regions_list5[[i]] <- meth_region5
+}
+
+names(meth_regions_list5) = str_remove(list.files(paste0(path, "methylation/cov5"), pattern = "_cov5_19.bed", full.names = F), "_cov5_19.bed")
+save(meth_regions_list5, file=paste0(path,"methylation/cov5/meth_regions_list5.RData"))
+load(paste0(path,"methylation/cov5/meth_regions_list5.RData"))
+
+methGroups <- function(index) {
+  meth_surveyed_groups = list()
+  tissue_regions <- meth_regions_list5[[index]]
+  methpercent <- tissue_regions@elementMetadata@listData$score
+  meth_surveyed_groups[[1]] <- tissue_regions[methpercent < 20]
+  meth_surveyed_groups[[2]] <- tissue_regions[methpercent >= 20 & methpercent < 40]
+  meth_surveyed_groups[[3]] <- tissue_regions[methpercent >= 40 & methpercent < 60]
+  meth_surveyed_groups[[4]] <- tissue_regions[methpercent >= 60 & methpercent < 80]
+  meth_surveyed_groups[[5]] <- tissue_regions[methpercent >= 80]
+  names(meth_surveyed_groups) <- c("Group1","Group2","Group3","Group4","Group5")
+  return(meth_surveyed_groups)
+}
+
+# adrenalMeth <- methGroups(index = 1)
+# adrenal_dist <- genomic_distribution(panBodyVCF[1], panBodySurveyed[1], adrenalMeth) %>% 
+#   mutate(rate = observed/surveyed_region_length)
+# pAdrenalMeth <- ggplot(adrenal_dist, aes(x = region, y = rate, color = sample)) +
+#   geom_point()
+
+
+colonMeth <- methGroups(index = 1)
+appendix_dist <- genomic_distribution(panBodyVCF[2], panBodySurveyed[2], colonMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+colon_dist <- genomic_distribution(panBodyVCF[6:8], panBodySurveyed[6:8], colonMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+colonRR_dist <- genomic_distribution(colonVCF, colonSurveyed, colonMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pAppendixMeth <- ggplot(appendix_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+pColonMeth <- ggplot(colon_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+pColonRRMeth <- ggplot(colonRR_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+
+
+skinMeth <- methGroups(index = 2)
+skin_dist <- genomic_distribution(panBodyVCF[19:21], panBodySurveyed[19:21], skinMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pSkinMeth <- ggplot(skin_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+
+smallBowelMeth <- methGroups(index = 3)
+smallBowel_dist <- genomic_distribution(panBodyVCF[22:24], panBodySurveyed[22:24], smallBowelMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pSmallBowelMeth <- ggplot(smallBowel_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+
+stomachMeth <- methGroups(index = 4)
+stomach_dist <- genomic_distribution(panBodyVCF[25:26], panBodySurveyed[25:26], stomachMeth) %>% 
+  mutate(rate = observed/surveyed_region_length)
+pStomachMeth <- ggplot(stomach_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+
+testesMeth <- methGroups(index = 5)
+testes_dist <- genomic_distribution(panBodyVCF[27:28], panBodySurveyed[27:28], testesMeth) %>%
+  mutate(rate = observed/surveyed_region_length)
+testesRR_dist <- genomic_distribution(testesVCF, testesSurveyed, testesMeth) %>%
+  mutate(rate = observed/surveyed_region_length)
+pTestesMeth <- ggplot(testes_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+pTestesRRMeth <- ggplot(testesRR_dist, aes(x = region, y = rate, color = sample)) +
+  geom_point()
+pTestesMeth
+pTestesRRMeth
+
+
+(pAppendixMeth + pStomachMeth) / (pColonMeth + pColonRRMeth) / (pSkinMeth + pSmallBowelMeth)
+
+
+png(paste0(plotsPath, 'methylationCov5.png'), height=12, width=16, units = "in", res = 300)
+(pAppendixMeth + pStomachMeth) / (pColonMeth + pColonRRMeth) / (pSkinMeth + pSmallBowelMeth)
+dev.off()
+```
+
+## SBS1 vs Meth
+```{r SBS1 vs Meth, fig.height=4, fig.width=8}
+
+methRRBSTestis <- read_tsv(paste0(path, "methylation/cov3/rrbs/testisRRBS_cov3_19.bed"), col_types = 'cddcdc', col_names = F)
+yo = import(paste0(path, "methylation/cov3/rrbs/testisRRBS_cov3_19.bed"))
+#Sample sig assigment
+sampleToTissue <- read_tsv(paste0(path, "methylation/sbs1prop/Sample_files_Paths.txt")) %>%
+  select(Samples = Sample, tissue = Tissue)
+mean_assignment0 <- read_tsv(paste0(path, "methylation/sbs1prop/sigCountsPanBody.txt")) %>% 
+  left_join(sampleToTissue) %>% 
+  filter(Samples != "PD43850w_P53_STM_G9")
+# 
+#   #Fix testes sample names
+#   mutate(sample = str_replace(Samples, "PD40745c", "PD40745c_PD42564c")) %>%
+#   mutate(sample = str_replace(sample, "PD40746c", "PD40746c_PD42568c")) %>% 
+#   #Fix colon sample names
+#   mutate(sample = str_replace(sample, "PD40745b", "PD40745b_PD42564b")) %>% 
+#   mutate(sample = str_replace(sample, "PD40746b", "PD40746b_PD42568b"))
+#Convert to fractions, select SBS1
+SBS1prop <- mean_assignment0 %>% 
+  mutate(sum = (select_if(mean_assignment0, is.numeric) %>% rowSums())) %>% 
+  mutate(across(matches("SBS"), ~ .x/sum)) %>% 
+  select(Samples, tissue, SBS1)
+
+SBS1count <- mean_assignment0 %>% 
+  select(Samples, tissue, SBS1)
+
+#Get proportion of methylation in each tissue
+methProp0 <- tibble(tissue = names(meth_regions_list)[-1],
+                    methSites = NA,
+                    methScore = NA) %>% 
+  mutate(tissue = str_replace(tissue, "smallBowel", "small_bowel"))
+for (i in 2:length(names(meth_regions_list))) {
+  methProp0$methSites[i-1] <- length(meth_regions_list[[i]]@elementMetadata@listData$score)
+  methProp0$methScore[i-1] <- sum(meth_regions_list[[i]]@elementMetadata@listData$score)/100
+}
+
+#Plot with proportions
+methProp0 %>% 
+  mutate(methRate = methScore/methSites) %>% 
+  left_join(SBS1prop, by = "tissue") %>% 
+  ggplot(aes(methRate, SBS1, color = tissue)) +
+    geom_point() +
+    xlab("Mean CpG Methylation") +
+    ylab("Proportion SBS1") +
+    theme_minimal()
+
+#Plot with counts
+methProp0 %>% 
+  mutate(methRate = methScore/methSites) %>% 
+  left_join(SBS1count, by = "tissue") %>% 
+  ggplot(aes(methRate, SBS1, color = tissue)) +
+    geom_point() +
+    xlab("Mean CpG Methylation") +
+    ylab("Burden SBS1") +
+    theme_minimal()
+```
+
+
+
+
+## Binary
+```{r}
 
 meth_dist = genomic_distribution(VCFs, surveyed_list, meth_regions_list)
 meth_depl = enrichment_depletion_test(meth_dist, by = tissues) %>% 
@@ -1128,19 +2403,20 @@ plot_enrichment_depletion_prop(meth_depl %>% filter(region %in%  c("testesMeth",
 
 #Fraction with any methylation
 
+# methFraction0 <- meth_dist %>% 
+#   filter(str_detect(region, "colon") & sample == "Colon" | str_detect(region, "lung") & sample == "LungNormal" | str_detect(region, "testes") & sample == "Testes" ) %>% 
+#   mutate(methylation = c(T,F,T,F,T,F))
+
 methFraction0 <- meth_dist %>% 
-  filter(str_detect(region, "colon") & sample == "Colon" | str_detect(region, "lung") & sample == "LungNormal" | str_detect(region, "testes") & sample == "Testes" ) %>% 
-  mutate(methylation = c(T,F,T,F,T,F))
+  filter(str_detect(region, "colon") & str_detect(sample, "Colon") | str_detect(region, "adrenal") & str_detect(sample, "Adrenal") | str_detect(region, "skin") & str_detect(sample, "Skin") | str_detect(region, "smallBowel") & str_detect(sample, "SmallBowel") | str_detect(region, "stomach") & str_detect(sample, "Stomach")) %>% 
+  mutate(methylation = if_else(str_detect(region, "NoMeth"), F, T))
 ## Report plot just testes colon
 # methFraction0 <- meth_dist %>% 
 #   filter(str_detect(region, "colon") & sample == "Colon" | str_detect(region, "testes") & sample == "Testes" ) %>% 
 #   mutate(methylation = c(T,F,T,F))
-methTotals <- methFraction0 %>% 
-  group_by(sample) %>% 
-  summarise(tot = sum(surveyed_region_length))
 
 methFraction <- methFraction0 %>% 
-  left_join(methFraction0 %>% group_by(sample) %>% summarise(tot = sum(surveyed_region_length)), by = "sample") %>% 
+  left_join(methFraction0 %>% group_by(sample) %>% summarise(tot = sum(surveyed_region_length)), by = "sample")%>% 
   mutate(fraction = surveyed_region_length/tot) %>% 
   mutate(obsExp = observed/expected) %>% 
   mutate(meth = if_else(methylation, "TRUE", "FALSE")) %>% 
@@ -1168,97 +2444,312 @@ pFraction / pObsExp + plot_layout(guides = 'collect') + plot_layout(heights = c(
 png('plots/methylationFraction.png', height=5, width=5, units = "in", res = 300)
 pFraction / pObsExp + plot_layout(guides = 'collect') + plot_layout(heights = c(2, 1.2))
 dev.off()
-```
 
-
-
-## Expression Model
-```{r glmm, fig.height=3, fig.width=5}
-get_gene_df <- function() {
-  biomart <- read_tsv(paste0(path, "expression/gene_prot_coords.tsv"), col_types = 'ccciiiii') %>% 
-    drop_na(prot) %>% 
-    dplyr::rename(prot_id = prot, gene_id = gene)
-  
-  data("refcds_hg19", package="dndscv")
-  gene_df <- tibble(gene_name = sapply(RefCDS, function(x) x$gene_name),
-                    prot_id = sapply(RefCDS, function(x) x$protein_id)) %>% 
-    left_join(biomart, by = "prot_id") %>% 
-    mutate(length = end - start)
-  gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end), strand = gene_df$strand)
-  seqlevelsStyle(gene_gr) <- "UCSC"
-  gene_df <- gene_df %>% 
-    mutate(gc_content = gcContentCalc(gene_gr, BSgenome.Hsapiens.UCSC.hg19)) %>% 
-    select(gene_name, chr, start, end, strand, length, gc_content)
-  return(gene_df)
-}
-gene_df <- get_gene_df() 
-rm(RefCDS, gr_genes)
-gene_gr <- GRanges(gene_df$chr, IRanges(start=gene_df$start,end=gene_df$end))
-seqlevelsStyle(gene_gr) <- "UCSC"
-
-ovs<- as.data.frame(findOverlaps(VCFs,gene_gr))
-overlapHits <- cbind(condensedSource[ovs$queryHits,],gene_df[ovs$subjectHits,]) %>% 
-  group_by(gene_name, source) %>% 
-  dplyr::summarise(count = n()) %>% 
-  ungroup() 
-
-mutsDF0 <- tibble()
-for(tissue in tissues)(mutsDF0 <- bind_rows(mutsDF0, gene_df %>% mutate(source = tissue)))
-
-#Expression Data transcriptional scanning paper
-fixDatesTable <- tibble(gene_name = c("01-Dec","01-Sep","02-Sep","03-Mar","03-Sep","04-Mar","04-Sep","05-Mar","05-Sep","06-Mar","06-Sep","07-Mar","07-Sep","08-Mar","08-Sep","09-Mar","09-Sep","10-Mar","10-Sep","11-Mar","11-Sep","12-Sep","14-Sep"),
-                        fix = c("DEC1","SEPT1","SEPT2","MARCH3","SEPT3","MARCH4","SEPT4","MARCH5","SEPT5","MARCH6","SEPT6","MARCH7","SEPT7","MARCH8","SEPT8","MARCH9","SEPT9","MARCH10","SEPT10","MARCH11","SEPT11","SEPT12","SEPT14"))
-
-germCellExpr <- read_csv(paste0(path, "expression/expr_level_groups.csv"), col_types = cols(.default = "c")) %>% 
-  pivot_longer(1:9, names_to = "group", values_to = "gene_name") %>% 
-  drop_na() %>% 
-  left_join(fixDatesTable, by ="gene_name") %>% 
-  mutate(gene_name = if_else(gene_name %in% fixDatesTable$gene_name, fix, gene_name)) %>% 
-  select(-fix) 
-
-mutsDF <- mutsDF0 %>% 
-  left_join(overlapHits, by = c("gene_name", "source")) %>% 
-  mutate(count = replace_na(count, 0)) %>% 
-  left_join(germCellExpr, by = "gene_name") %>% 
-  mutate(group = fct_relevel(group, c("Group_Unexp","Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"))) %>% 
-  drop_na()
-
-plot_glmm <- function(mutTable, dataSources, exprGroups, tests = 8, formula) {
-  #Construct formula and run model
-  df <- tibble()
-  for (dataset in dataSources) {
-    fit_full <- glmer(formula = as.formula(formula), data = (mutTable %>% filter(source == dataset)), family = poisson(),
-                    control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
-    #print(dispersion_glmer(fit_full))
-    #print(summary(fit_full, corr = F))
-    tidy_fit_full <- tidy(fit_full) %>% 
-      mutate(group = str_remove(term,"group")) %>% 
-      mutate(p.format = signif(p.value, 2)) %>% 
-      mutate(source = dataset)
-    df <- df %>% bind_rows(tidy_fit_full[2:9,])
-  }
-  #Plot together
-  sigThresh <- 0.05 / tests
-  df2 <- df %>% 
-    mutate(p.format = if_else(p.value < sigThresh, "*", ""))
-  df2$group <- factor(df2$group, levels = exprGroups)
-  df2$source <- factor(df2$source, levels = dataSources)
-  plot <- ggplot(df2, aes(x = group, y = estimate, colour = source, label = p.format, group = interaction(group, source))) +
-    geom_hline(yintercept = 0, colour = "grey") +
-    geom_point(position = position_dodge(0.9), size = 3) +
-    geom_errorbar(aes(ymin=estimate-(std.error*1.96), ymax=estimate+(std.error*1.96)), width=.1, position = position_dodge(0.9)) +
-    geom_text(aes(y = estimate+(std.error*1.96)), colour = "black", size = 4, position = position_dodge(0.9), vjust = -0.75) +
-    theme_minimal() +
-    xlab("Expression bin") + ylab("Effect estimate") + labs(colour = "Variant Source")
-  return(plot)
-}
-#Plot for individual datasets or all together
-glmmTissues <- c("Testes", "Trio_DNMs")
-#glmmTissues <- tissues
-glmmPlot <- plot_glmm(mutTable = mutsDF, dataSources = glmmTissues, exprGroups = c("Group_1","Group_2","Group_3","Group_4","Group_5","Group_6","Group_7","Group_8"), tests = 8, formula = "count ~ group + offset(log(length)) + offset(log(gc_content)) + (1|gene_name)")
-glmmPlot
-
-png(paste0(plotsPath, 'glmmExpression.png'), height=5, width=10, units = "in", res = 300)
-glmmPlot
+pdf('plots/methylationFraction.pdf', height=5, width=5)
+pFraction / pObsExp + plot_layout(guides = 'collect') + plot_layout(heights = c(2, 1.2))
 dev.off()
 ```
+
+# Assign Sigs
+## Functions
+```{r sigFunctions}
+get_variant_contexts <- function (vcf_list, ref_genome) {
+  df_joined <- tibble()
+    for (i in 1:length(vcf_list)) {
+        vcf <- vcf_list[[i]]
+        df <- tibble(chr = str_remove(as.vector(seqnames(vcf)), "chr"),
+                     pos = vcf@ranges@start,
+                     REF = as.character(vcf@elementMetadata@listData$REF),
+                     sub = mut_type(vcf),
+                     trinuc = type_context(vcf, ref_genome)[[2]],
+                     sample = names(vcf_list[i]))
+        df_joined <- df_joined %>% 
+          bind_rows(df)
+    }
+  return(df_joined)
+}
+```
+
+## Prep data
+```{r loadData}
+strandPath <- "/Users/mn7/volumes/mn7_lustre/sigAssign/"
+sigAssignPlots <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enrichment/sigAssignPlots/"
+#Variants
+testesDF <- get_variant_contexts(testesVCF, ref_genome)
+colonDF <- get_variant_contexts(colonVCF, ref_genome)
+panBodyDF <- get_variant_contexts(panBodyVCF, ref_genome)
+variantDF <- bind_rows(testesDF, colonDF, panBodyDF)
+#Sigs
+data("cosmic_signatures_v3")
+sigs <- c("SBS1", "SBS5", "SBS7a", "SBS7b","SBS7d","SBS8","SBS18")
+sigsDF <- as_tibble(t(cosmic_signatures_v3)) %>% 
+  select(SBS1, SBS5, SBS7a, SBS7b,SBS7d,SBS8, SBS18) %>% 
+  mutate(sub = paste0(str_sub(colnames(cosmic_signatures_v3), 2,2), ">", str_sub(colnames(cosmic_signatures_v3), 6,6))) %>% 
+  mutate(trinuc = str_sub(colnames(cosmic_signatures_v3), 1,3))
+#Sample sig assigment
+mean_assignment0 <- read_tsv(paste0(strandPath, "sigCountsPanBody.txt")) %>% 
+  #Fix testes sample names
+  mutate(sample = str_replace(Samples, "PD40745c", "PD40745c_PD42564c")) %>%
+  mutate(sample = str_replace(sample, "PD40746c", "PD40746c_PD42568c")) %>% 
+  #Fix colon sample names
+  mutate(sample = str_replace(sample, "PD40745b", "PD40745b_PD42564b")) %>% 
+  mutate(sample = str_replace(sample, "PD40746b", "PD40746b_PD42568b"))
+
+#Convert to fractions
+mean_assignment <- mean_assignment0 %>% 
+  mutate(sum = (select_if(mean_assignment0, is.numeric) %>% rowSums())) %>% 
+  mutate(across(matches("SBS"), ~ .x/sum)) %>% 
+  select(sample, matches("SBS"))
+
+#Calculate probability of each variant belonging to each signature based on fraction of signature in sample and frequency of mutation type with that signature
+probabilityDF <- variantDF %>% 
+  left_join(mean_assignment, by = "sample") %>% 
+  left_join(sigsDF, by = c("sub", "trinuc"), suffix = c("_sample", "_freq")) %>% 
+  #Manually imput sigs here
+  mutate(SBS1_Prob = SBS1_sample * SBS1_freq) %>% 
+  mutate(SBS5_Prob = SBS5_sample * SBS5_freq) %>% 
+  mutate(SBS7a_Prob = SBS7a_sample * SBS7a_freq) %>% 
+  mutate(SBS7b_Prob = SBS7b_sample * SBS7b_freq) %>% 
+  mutate(SBS7d_Prob = SBS7d_sample * SBS7d_freq) %>% 
+  mutate(SBS8_Prob = SBS8_sample * SBS8_freq) %>% 
+  mutate(SBS18_Prob = SBS18_sample * SBS18_freq) %>% 
+  mutate(SBS1_ProbNorm = SBS1_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS5_ProbNorm = SBS5_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS7a_ProbNorm = SBS7a_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS7b_ProbNorm = SBS7b_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS7d_ProbNorm = SBS7d_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS8_ProbNorm = SBS8_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob)) %>% 
+  mutate(SBS18_ProbNorm = SBS18_Prob/(SBS1_Prob + SBS5_Prob + SBS7a_Prob + SBS7b_Prob + SBS7d_Prob + SBS8_Prob +SBS18_Prob))
+
+probabilityDF %>% filter(SBS1_ProbNorm > .7) %>% summarise(sum(SBS1_ProbNorm))
+probabilityDF %>% filter(SBS5_ProbNorm > .7) %>% summarise(sum(SBS5_ProbNorm))
+
+sum(mean_assignment0$SBS1)
+sum(mean_assignment0$SBS5)
+```
+
+## Tx Bias
+```{r tx_bias}
+#Reference transcripts
+chrom_sizes <- read_csv(paste0(strandPath, "hg19_chrom_sizes.csv"), col_names = c("chr", "chr_length"), col_types = 'cd')
+ref_seq <- read_tsv(paste0(strandPath,"grch37_ref_seq_gene_start_end_strand.txt"), col_names = c("GeneID", "GeneIDVersion","TxID", "TxIDVersion", "start", "end", "strand", "chr"), col_types = 'ccccddcc',skip = 1) %>% 
+  filter(chr %in% c(as.character(1:22),"X","Y")) %>% 
+  select(chr, start, end, strand) %>% 
+  arrange(chr, start) %>% 
+  left_join(chrom_sizes, by = "chr")
+
+probabilityDF$transcription <- NA
+
+total_trans_plus <- 0
+total_trans_minus <- 0
+
+for(chrom in chrom_sizes$chr){
+  transcribed_plus <- vector(length = chrom_sizes[chrom_sizes$chr == chrom,] %>% pull(chr_length))
+  for(i in 1:nrow(ref_seq)){
+    if(ref_seq$strand[i] == 1 & ref_seq$chr[i] == chrom){
+      transcribed_plus[ref_seq$start[i]:ref_seq$end[i]] <- T
+    }
+  }
+  transcribed_plus <- which(transcribed_plus == T)
+  
+  transcribed_minus <- vector(length = chrom_sizes[chrom_sizes$chr == chrom,] %>% pull(chr_length))
+  for(i in 1:nrow(ref_seq)){
+    if(ref_seq$strand[i] == -1 & ref_seq$chr[i] == chrom){
+      transcribed_minus[ref_seq$start[i]:ref_seq$end[i]] <- T
+    }
+  }
+  transcribed_minus <- which(transcribed_minus == T)
+  overlap <- transcribed_minus[which(transcribed_minus %in% transcribed_plus)]
+  transcribed_plus <- transcribed_plus[which(!(transcribed_plus %in% overlap))]
+  transcribed_minus <- transcribed_minus[which(!(transcribed_minus %in% overlap))]
+  
+  probabilityDF$transcription[which(probabilityDF$chr == chrom & probabilityDF$pos %in% transcribed_plus)] <- 1
+  probabilityDF$transcription[which(probabilityDF$chr == chrom & probabilityDF$pos %in% transcribed_minus)] <- -1
+  
+  total_trans_plus <- total_trans_plus + length(transcribed_plus)
+  total_trans_minus <- total_trans_minus + length(transcribed_minus)
+}
+
+probabilityDF$transcription_py <- NA
+for(i in 1:nrow(probabilityDF)){
+  if(probabilityDF$transcription[i] %in% c(1,-1)){
+    if(probabilityDF$transcription[i] == 1 & probabilityDF$REF[i] %in% c("C","T")){
+      probabilityDF$transcription_py[i] <- "untrans"
+    }else if(probabilityDF$transcription[i] == 1 & probabilityDF$REF[i] %in% c("A","G")){
+      probabilityDF$transcription_py[i] <- "trans"
+    }else if(probabilityDF$transcription[i] == -1 & probabilityDF$REF[i] %in% c("C","T")){
+      probabilityDF$transcription_py[i] <- "trans"
+    }else if(probabilityDF$transcription[i] == -1 & probabilityDF$REF[i] %in% c("A","G")){
+      probabilityDF$transcription_py[i] <- "untrans"
+    }
+  }
+}
+
+transcription_sigs <- as.data.frame(array(data = 0, dim = c(2 * (length(sigs)),96)))
+colnames(transcription_sigs) <- sort(unique(paste(probabilityDF$sub,probabilityDF$trinuc,sep = "_")))
+rownames(transcription_sigs) <- paste0(rep(sigs,each = 2), rep(c("trans","untrans"), times = length(sigs)))
+
+for(i in 1:nrow(probabilityDF)){
+  if(!(is.na(probabilityDF$transcription[i]))){
+    if(probabilityDF$transcription_py[i] == "trans"){
+      sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+      transcription_sigs[paste0(sigs,"trans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- transcription_sigs[paste0(sigs,"trans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+    }else if(probabilityDF$transcription_py[i] == "untrans"){
+      sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+      transcription_sigs[paste0(sigs,"untrans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- transcription_sigs[paste0(sigs,"untrans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+    }
+  }
+}
+
+transcription_plot <- reshape2::melt(transcription_sigs)
+transcription_plot$sig <- rep(rownames(transcription_sigs),96)
+
+for(i in sigs){
+  transcription_plot %>% filter(sig %in% c(paste0(i, "trans"), paste0(i, "untrans"))) %>%
+    ggplot() +
+    geom_col(aes(x = variable, y = value, fill = sig), position = "dodge") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  ggsave(filename = paste0(sigAssignPlots, "Sig",i,"_transcription_prob_sum.pdf"), width = 15, height = 5)
+}
+
+for(ass_prob in seq(from = 0, to = 0.9, by = 0.1)) {
+  
+  transcription_sigs <- as.data.frame(array(data = 0, dim = c(2 * length(sigs),96)))
+  colnames(transcription_sigs) <- sort(unique(paste(probabilityDF$sub,probabilityDF$trinuc,sep = "_")))
+  rownames(transcription_sigs) <- paste0(rep(sigs,each = 2), rep(c("trans","untrans"), times = length(sigs)))
+  
+  for(i in 1:nrow(probabilityDF)){
+    if(!(is.na(probabilityDF$transcription[i]))){
+      if(probabilityDF$transcription_py[i] == "trans"){
+        sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+        sig_probs[which(sig_probs < ass_prob)] <- 0
+        sig_probs[which(sig_probs >= ass_prob)] <- 1
+        transcription_sigs[paste0(sigs,"trans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- transcription_sigs[paste0(sigs,"trans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+      }else if(probabilityDF$transcription_py[i] == "untrans"){
+        sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+        sig_probs[which(sig_probs < ass_prob)] <- 0
+        sig_probs[which(sig_probs >= ass_prob)] <- 1
+        transcription_sigs[paste0(sigs,"untrans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- transcription_sigs[paste0(sigs,"untrans"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+      }
+    }
+  }
+  
+  transcription_plot <- reshape2::melt(transcription_sigs)
+  transcription_plot$sig <- rep(rownames(transcription_sigs),96)
+  
+  for(i in sigs){
+    transcription_plot %>% filter(sig %in% c(paste0(i, "trans"), paste0(i, "untrans"))) %>%
+    ggplot() +
+      geom_col(aes(x = variable, y = value, fill = sig), position = "dodge") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+    ggsave(filename = paste0(sigAssignPlots, "Sig",i,"_transcription_cutoff_",ass_prob,".pdf"), width = 15, height = 5)
+  }
+}
+
+```
+## Rep Strand Bias
+```{r strandBiasProb}
+
+replication_timing <- read.table(paste0(strandPath, "replication_timing.repdir.txt"), sep = "\t", stringsAsFactors = F, header = T)
+
+probabilityDF$replication <- NA
+for(i in 1:nrow(probabilityDF)){
+  if(probabilityDF$chr[i] %in% 1:22){
+    replication_row <- which(replication_timing$chr == probabilityDF$chr[i] & replication_timing$st <= probabilityDF$pos[i] & replication_timing$en >= probabilityDF$pos[i])
+    if(replication_timing$is_left[replication_row] == 1){
+      probabilityDF$replication[i] <- "L"
+    }else if(replication_timing$is_right[replication_row] == 1){
+      probabilityDF$replication[i] <- "R"
+    }
+  }
+}
+
+probabilityDF$replication_py <- NA
+for(i in 1:nrow(probabilityDF)){
+  if(probabilityDF$replication[i] %in% c("L","R")){
+    if(probabilityDF$replication[i] == "L" & probabilityDF$REF[i] %in% c("C","T")){
+      probabilityDF$replication_py[i] <- "lead"
+    }else if(probabilityDF$replication[i] == "L" & probabilityDF$REF[i] %in% c("A","G")){
+      probabilityDF$replication_py[i] <- "lag"
+    }else if(probabilityDF$replication[i] == "R" & probabilityDF$REF[i] %in% c("C","T")){
+      probabilityDF$replication_py[i] <- "lag"
+    }else if(probabilityDF$replication[i] == "R" & probabilityDF$REF[i] %in% c("A","G")){
+      probabilityDF$replication_py[i] <- "lead"
+    }
+  }
+}
+
+replication_sigs <- as.data.frame(array(data = 0, dim = c(2 * length(sigs),96)))
+colnames(replication_sigs) <- sort(unique(paste(probabilityDF$sub,probabilityDF$trinuc,sep = "_")))
+rownames(replication_sigs) <- paste0(rep(sigs,each = 2), rep(c("lag","lead"), times = length(sigs)))
+
+for(i in 1:nrow(probabilityDF)){
+  if(!(is.na(probabilityDF$replication[i]))){
+    if(probabilityDF$replication_py[i] == "lag"){
+      replication_sigs[paste0(sigs,"lag"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- replication_sigs[paste0(sigs,"lag"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+    }else if(probabilityDF$replication_py[i] == "lead"){
+      replication_sigs[paste0(sigs,"lead"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- replication_sigs[paste0(sigs,"lead"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+    }
+  }
+}
+
+replication_plot <- reshape2::melt(replication_sigs)
+replication_plot$sig <- rep(rownames(replication_sigs),96)
+
+for(i in sigs){
+    replication_plot %>% filter(sig %in% c(paste0(i, "lag"), paste0(i, "lead"))) %>%
+    ggplot() +
+    geom_col(aes(x = variable, y = value, fill = sig), position = "dodge") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  ggsave(filename = paste0(sigAssignPlots, "Sig",i,"_replication_prob_sum.pdf"), width = 15, height = 5)
+}
+
+for(ass_prob in seq(from = 0, to = 0.9, by = 0.1)) {
+  
+  replication_sigs <- as.data.frame(array(data = 0, dim = c(2*length(sigs),96)))
+  colnames(replication_sigs) <- sort(unique(paste(probabilityDF$sub,probabilityDF$trinuc,sep = "_")))
+  rownames(replication_sigs) <- paste0(rep(sigs,each = 2), rep(c("lag","lead"), times = length(sigs)))
+  
+  for(i in 1:nrow(probabilityDF)){
+    if(!(is.na(probabilityDF$replication[i]))){
+      if(probabilityDF$replication_py[i] == "lag"){
+        sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+        sig_probs[which(sig_probs < ass_prob)] <- 0
+        sig_probs[which(sig_probs >= ass_prob)] <- 1
+        replication_sigs[paste0(sigs,"lag"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- replication_sigs[paste0(sigs,"lag"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+      }else if(probabilityDF$replication_py[i] == "lead"){
+        sig_probs <- as.numeric(probabilityDF[i,paste0(sigs, "_ProbNorm")])
+        sig_probs[which(sig_probs < ass_prob)] <- 0
+        sig_probs[which(sig_probs >= ass_prob)] <- 1
+        replication_sigs[paste0(sigs,"lead"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] <- replication_sigs[paste0(sigs,"lead"),paste(probabilityDF$sub[i],probabilityDF$trinuc[i],sep = "_")] + sig_probs
+      }
+    }
+  }
+  
+  replication_plot <- reshape2::melt(replication_sigs)
+  replication_plot$sig <- rep(rownames(replication_sigs),96)
+  
+  for(i in sigs){
+    replication_plot %>% filter(sig %in% c(paste0(i, "lag"), paste0(i, "lead"))) %>%
+    ggplot() +
+      geom_col(aes(x = variable, y = value, fill = sig), position = "dodge") +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+    ggsave(filename = paste0(sigAssignPlots, "Sig",i,"_replication_cutoff_",ass_prob,".pdf"), width = 15, height = 5)
+  }
+}
+
+#write.table(probabilityDF, file = "/Users/al28/Mounts/cancer/bladder_manuscript/wgs/bld_probabilityDF_calls_trinuc_annotated_rep_trans.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+
+```
+
+
+
+
+
+
+
+
