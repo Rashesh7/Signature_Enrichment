@@ -190,8 +190,8 @@ load_VCF <- function(dataset) {
   }
   #PanBody muts
   if(dataset == "PanBody") {
-    panBodyFiles <- list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz" , full.names = TRUE)
-    panBodySamples <- str_remove(list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz"), ".vcf.gz")
+    panBodyFiles <- list.files(paste0(path, "variantVCFs/PanBody/excluded"), pattern = ".vcf.gz" , full.names = TRUE)
+    panBodySamples <- str_remove(list.files(paste0(path, "variantVCFs/PanBody/excluded"), pattern = ".vcf.gz"), ".vcf.gz")
     panBodyVCF <- read_vcfs_as_granges(panBodyFiles, panBodySamples, ref_genome, check_alleles=T)
     return(panBodyVCF)
   }
@@ -614,7 +614,6 @@ panBodyTissues <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBod
 tissues <- c(rep("testis",length(testesVCF)), rep("colon",length(colonVCF)), panBodyTissues)
 tissuesByVar <- c(rep("testis",length(unlist(testesVCF))), rep("colon",length(unlist(colonVCF))), rep(panBodyTissues, times = lengths(panBodyVCF)))
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
-
 #Surveyed Regions
 testesSurveyed <- load_callable("Testes")
 colonSurveyed <- load_callable("Colon")
@@ -624,7 +623,21 @@ surveyed_list <- c(testesSurveyed, colonSurveyed, panBodySurveyed)
 
 #Tri Rate Tables
 triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
+p_triRateTable <- triRateTable %>% 
+  ggplot(aes(x = context, y = rate, color = tissue)) +
+  geom_point() + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90), legend.title = element_blank()) +
+  ylab("Mut Rate") +
+  xlab("") 
 
+png(paste0(plotsPath, 'triRate.png'), height=4, width=8, units = "in", res = 300)
+p_triRateTable
+dev.off()
+
+pdf(paste0(plotsPath, 'triRate.pdf'), height=4, width=8)
+p_triRateTable
+dev.off()
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -703,160 +716,6 @@ p_corrected <- (0.05/length(unique(tissues)))
 ```
 
 # TriNuc Adjustment
-## TriNuc Counter script
-```{r trinucCounter, eval = FALSE}
-library(Biostrings)
-library(seqinr)
-library(GenomicRanges)
-library(Rsamtools)
-library(MASS)
-
-args       = commandArgs(TRUE) 
-unmasked_genome_file = NULL
-genome_file          = args[1]     # "/nfs/cancer_ref01/Homo_sapiens/37/genome.fa"
-out_name             = args[2]     # "human_strict"
-if(length(args)==3) {
-	unmasked_genome_file = args[3] # "/lustre/scratch119/casm/team268im/fa8/BOTSEQ/MASKS/all-norm-strict.inverse.bed"
-}
-###########################################################################################
-# Load sequences, either for regions or the entire genome
-if(!is.null(unmasked_genome_file)) {
-	cat("Loading regions...\n")
-	regions = read.table(unmasked_genome_file,header=F,sep="\t",colClasses=c("character","numeric","numeric"))
-	colnames(regions) <- c("chr","start","end")
-	regions$start = regions$start+1 # make it 1-based
-	
-	cat("Extracting sequences...\n")
-	sequences = as.vector(scanFa(genome_file, GRanges(regions$chr, IRanges(regions$start, regions$end))))
-} else {
-	cat("Loading entire genome...\n")
-	sequences = as.vector(scanFa(genome_file))
-}
-	
-###########################################################################################
-# trinucleotideFrequency
-cat("Calculating trinucleotide frequencies...\n")
-tri_freqs <- t(sapply(sequences,function(x) trinucleotideFrequency(DNAString(x))))
-
-tri_freqs_summary <- apply(tri_freqs,2,sum)
-write.table(tri_freqs_summary,file=paste(out_name,".tri_freqs.tsv",sep=""),sep="\t",quote=F,col.names=F)
-
-###########################################################################################
-# Translate to pyr reference:
-complement = vector()
-complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";		
-# Define pyr_trinucs
-pyr = c("C","T")
-pyr2pur = vector()
-all = c("A","C","G","T")
-for(a in all) {
-	for(p in pyr) {
-		for(b in all) {
-			pyr2pur[paste(a,p,b,sep="")] = paste(complement[b],complement[p],complement[a],sep="")
-		}
-	}
-}
-tri_freqs_summary_pyr = vector()
-for(tri_pyr in names(pyr2pur)) {
-	tri_freqs_summary_pyr[tri_pyr] = tri_freqs_summary[tri_pyr] + tri_freqs_summary[pyr2pur[tri_pyr]]
-}
-write.table(tri_freqs_summary_pyr,file=paste(out_name,".tri_freqs.pyr.tsv",sep=""),sep="\t",quote=F,col.names=F)
-
-
-```
-
-## TriNuc Bash scripts
-```{bash trinucBash, eval = FALSE}
-#Testis Samples
-#!/bin/bash
-
-GENOME=/nfs/cancer_ref01/Homo_sapiens/37/genome.fa
-CALLABLE=/lustre/scratch119/casm/team294rr/rs30/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Normal
-INDIVs=(PD40744c PD40745c_PD42564c PD40746c_PD42568c PD42034b PD42036b PD42563c PD42565c PD42566c PD42569c PD43726c PD43727b PD46269c)
-OUT=/lustre/scratch119/casm/team294rr/mn7/pipelineInput/triNucBackground/Testes
-
-#Get trinucleotide counts for callable regions
-for indiv in ${INDIVs[@]}
-do
-	Rscript triNucCounter.R $GENOME $OUT/${indiv}.full $CALLABLE/${indiv}.sorted.merged.bed
-done	
-	
-#Commands
-bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./testesTriNuc.sh
-
-#Colon Samples
-#!/bin/bash
-
-GENOME=/nfs/cancer_ref01/Homo_sapiens/37/genome.fa
-CALLABLE=/lustre/scratch119/casm/team294rr/rs30/Testicular_project/mosdepth/WGS/Callable_regions_for_CAVEMAN/Per_PID-Tissue/Colon
-INDIVs=(PD40745b_PD42564b PD40746b_PD42568b PD42563b PD42566b)
-OUT=/lustre/scratch119/casm/team294rr/mn7/pipelineInput/triNucBackground/Colon
-
-#Get trinucleotide counts for callable regions
-for indiv in ${INDIVs[@]}
-do
-	Rscript triNucCounter.R $GENOME $OUT/${indiv}.full $CALLABLE/${indiv}.sorted.merged.bed
-done	
-	
-#Commands
-bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./colonTriNuc.sh
-```
-
-## Background Rate
-```{r trinucBackground, fig.height=4, fig.width=10}
-pyrTri_to_mutOpp <- c(rep(c(1:4,9:12,17:20,25:28), 3), rep(c(5:8,13:16,21:24,29:32),3))
-
-getRateTable <- function(vcf_list, mutFolder, suffix = ".tri_freqs.pyr.tsv") {
-  #Get total muts for tissue
-  muts0 <- mut_matrix(vcf_list, ref_genome)
-  muts <- as_tibble(muts0) %>% 
-    mutate(mutType = rownames(muts0)) %>% 
-    rowwise() %>%
-    mutate(totMuts = sum(c_across(where(is.numeric))))
-  #Get mean opportunities for tissue
-  pyrCountFiles <- list.files(mutFolder, pattern = suffix, full.names = TRUE)
-  samples <- str_remove(list.files(mutFolder, pattern = suffix), suffix)
-  opps <- NULL
-  for(i in 1:length(pyrCountFiles)) {
-    pyrDF <- read_tsv(pyrCountFiles[i], col_names = F, col_types = 'ci')[pyrTri_to_mutOpp,2] 
-    colnames(pyrDF) <- samples[i]
-    opps <- bind_cols(opps, pyrDF)
-  }
-  opp_to <- opps %>% 
-    rowwise() %>%
-    mutate(meanOpps = mean(c_across(cols = everything())))
-  freqDF <- bind_cols(muts, opp_to) %>% 
-    select(mutType, totMuts, meanOpps) %>% 
-    mutate(rate = totMuts/meanOpps) %>% 
-    mutate(context = paste0(str_sub(mutType,1,1),str_sub(mutType,3,3),str_sub(mutType,7,7))) %>% 
-    group_by(context) %>% 
-    summarise(rate = sum(rate), .groups = "drop") %>% 
-    mutate(rate = rate/sum(lengths(vcf_list)))
-  # scaledDF <- freqDF %>% 
-  #   mutate(scaledRate = rate * (1/sum(freqDF$rate))) %>% 
-  #   select(-rate)
-  return(freqDF)
-}
-
-colonTriRate <- getRateTable(colonVCF, mutFolder = paste0(path, "triNucBackground/Colon"), suffix = ".tri_freqs.pyr.tsv")
-testesTriRate <- getRateTable(testesVCF, mutFolder = paste0(path, "triNucBackground/Testes"), suffix = ".tri_freqs.pyr.tsv")
-
-colonTriRate %>% 
-  ggplot(aes(x = context, y = scaledRate)) +
-  geom_point() + 
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  ylab("Mut Rate") +
-  xlab("") 
-testesTriRate %>% 
-  ggplot(aes(x = context, y = scaledRate)) +
-  geom_point() + 
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  ylab("Mut Rate") +
-  xlab("") 
-```
-
 ## Custom Enrich Fxn
 ```{r customEnrichFxn, fig.height=4, fig.width=6}
 #Edit intersect_with_region and genomic_distribution fxns from mutational patterns 
@@ -931,34 +790,60 @@ genomic_distributionCustom <- function (vcf_list, surveyed_list, region_list, tr
     return(df)
 }
 
+#Rep timing Bias
 mainRepDist <- genomic_distributionCustom(VCFs, surveyed_list, regions_list, triRateTable, tissues)
 
-yo = colonRepDist %>% 
+repTimingAdjusted <- mainRepDist %>% 
   group_by(region, tissueType) %>% 
   summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
-  mutate(by = "Colon") %>% 
+  mutate(by = tissueType) %>% 
   mutate(prob = 0) %>% 
   mutate(effect = "depletion") %>% 
   mutate(pval = 1) %>% 
   mutate(significant = "") %>% 
   select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant)
 
+pRepTimingAdjusted <- plot_enrichment_depletion_prop(repTimingAdjusted)
 
-testesRepDist <- genomic_distributionCustom(testesVCF, testesSurveyed, regions_list, testesTriRate)
-yo2 = testesRepDist %>% 
-  group_by(region) %>% 
+png(paste0(plotsPath, 'repTimingAdjBias.png'), height=5, width=8, units = "in", res = 300)
+pRepTimingAdjusted 
+dev.off()
+
+pdf(paste0(plotsPath, 'repTimingAdjBias.pdf'), height=5, width=8)
+pRepTimingAdjusted 
+dev.off()
+
+#Exons vs Introns vs Coding
+exons_hg19 <- exonicParts(TxDb.Hsapiens.UCSC.hg19.knownGene)
+introns_hg19 <- intronicParts(TxDb.Hsapiens.UCSC.hg19.knownGene)
+cds_hg19 <- cds(TxDb.Hsapiens.UCSC.hg19.knownGene)
+
+codingRegions_list=list()
+codingRegions_list[[1]] <- cds_hg19
+codingRegions_list[[2]] <- exons_hg19
+codingRegions_list[[3]] <- introns_hg19
+names(codingRegions_list) <- c("coding", "exonic", "intronic")
+codingDist <- genomic_distributionCustom(VCFs, surveyed_list, codingRegions_list, triRateTable, tissues)
+
+codingAdjusted <- codingDist %>% 
+  group_by(region, tissueType) %>% 
   summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
-  mutate(by = "Testis") %>% 
+  mutate(by = tissueType) %>% 
   mutate(prob = 0) %>% 
   mutate(effect = "depletion") %>% 
   mutate(pval = 1) %>% 
   mutate(significant = "") %>% 
-  select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant) %>% 
-  bind_rows(yo)
+  select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant)
 
-plot_enrichment_depletion_prop(yo2)
+pCodingAdjusted <- plot_enrichment_depletion_prop(codingAdjusted)
 
+png(paste0(plotsPath, 'codingAdjusted.png'), height=5, width=8, units = "in", res = 300)
+pCodingAdjusted
+dev.off()
 
+pdf(paste0(plotsPath, 'codingAdjusted.pdf'), height=5, width=8)
+pCodingAdjusted
+dev.off()
 ```
 
 
@@ -991,9 +876,7 @@ strand_counts <- strand_occurrences(mut_mat_s, by=tissues)
 strand_bias <- strand_bias_test(strand_counts) %>% 
   #Multiple test correction
   mutate(significant = if_else(p_poisson < p_corrected, "*", "")) %>% 
-  mutate(logRatio = log2(transcribed/untranscribed)) %>% 
-  mutate(class = if_else(str_detect(group, "Testis"), "Germline", "Soma")) %>% 
-  mutate(class = fct_relevel(class, "Soma", "Germline"))
+  mutate(logRatio = log2(transcribed/untranscribed))
 #Plot the mutation spectrum with strand distinction:
 ps1 <- plot_strand(strand_counts, mode = "relative")
 #effect size (log2(untranscribed/transcribed) of the strand bias
@@ -1011,7 +894,7 @@ dev.off()
 
 txBiasSummary <- ggplot(strand_bias, aes(type, logRatio, color = group, label = significant)) +
   geom_hline(yintercept = 0, colour = "grey") +
-  geom_jitter(position = position_jitter(width = 0.2, seed = 1), size = 3, aes(shape = class)) + 
+  geom_jitter(position = position_jitter(width = 0.2, seed = 1), size = 3) + 
   theme_bw() +
   theme(axis.title.x = element_blank(), legend.title = element_blank()) +
   geom_text(position = position_jitter(width = 0.2, seed = 1), color= "black", size = 5) +
@@ -1172,7 +1055,8 @@ dev.off()
 ## Misc Features
 ```{r miscFeatures}
 load(paste0(path, "mutPatternsRegions/misc_regions_list.RData"))
-
+miscSurveyed <- keepStandardChromosomes(misc_regions_list[[4]], pruning.mode = "coarse")
+miscSurveyed <- dropSeqlevels(miscSurveyed, "chrM", pruning.mode="coarse")
 # Find overlaps between mutations and genomic regions
 misc_dist = genomic_distribution(VCFs, surveyed_list, misc_regions_list)
 misc_depl = enrichment_depletion_test(misc_dist, by = tissues) %>% 
@@ -1246,6 +1130,77 @@ dev.off()
 ```
 
 # Expression
+## PanBody Enrich
+```{r PanBodyExpr, fig.height=5, fig.width=10}
+biomart <- read_tsv(paste0(path, "expression/txCoordsHG19.txt"), col_types = 'ccciiciic', skip = 1, col_names = c("gene", "geneVersion", "chr", "start", "end", "txType", "txStart", "txEnd", "strand")) %>% 
+  mutate(strand = if_else(strand == "1", "+", "-")) %>% 
+  group_by(gene, chr, strand) %>% 
+  summarize(start = min(start), end = max(end), txStart = min(txStart), txEnd = max(txEnd), txType = paste(txType, collapse = ";"), .groups = "drop")
+
+gtexMedian <- read_tsv(paste0(path, "expression/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz"), skip = 2, col_types = cols(Name = "c", Description = "c", .default = "d")) %>%  
+  mutate(gene = str_remove(Name, "\\..*")) %>% 
+  #Join hg19 coords
+  left_join(biomart, by = "gene") %>% 
+  #Drop non-standard chromosomes
+  filter(chr %in% c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X")) %>% 
+  drop_na()
+
+txPanBody <- gtexMedian %>% 
+  mutate(length = txEnd - txStart) %>% 
+  select(gene, chr, txStart, txEnd, strand, length,
+         adrenal_gland = "Adrenal Gland", bronchus_epithelium = "Lung", colon = "Colon - Sigmoid", liver = "Liver", oesophagus = "Esophagus - Mucosa",
+         pancreas = "Pancreas", prostate = "Prostate", skin = "Skin - Sun Exposed (Lower leg)", #skinNoSun = "Skin - Not Sun Exposed (Suprapubic)", 
+         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid") %>% 
+  #Pivot for one row per gene tissue pair
+  pivot_longer(cols = -c(gene, chr, txStart, txEnd, strand, length), names_to = "tissue", values_to = "tpm") %>% 
+  #Bin expression on tpm
+  mutate(bin = "Unexp") %>% 
+  mutate(bin = if_else(tpm > 0 & tpm <= 1, "0-1", bin)) %>% 
+  mutate(bin = if_else(tpm > 1 & tpm <= 10, "1-10", bin)) %>% 
+  mutate(bin = if_else(tpm > 10 & tpm <= 100, "10-100", bin)) %>% 
+  mutate(bin = if_else(tpm > 100, "100+", bin)) %>% 
+  mutate(bin = fct_relevel(bin, c("Unexp", "0-1", "1-10", "10-100", "100+")))
+
+tissuesWithExprData <- c("testis","colon","adrenal_gland","bronchus_epithelium","liver","oesophagus","prostate","skin","small_bowel","thyroid","pancreas","stomach")
+
+#Create granges lists for the 5 expression bins per tissue+
+exprEnrichDF <- tibble()
+for(etissue in tissuesWithExprData) {
+  expr_list=list()
+  for(eBin in c("Unexp", "0-1", "1-10", "10-100", "100+")){
+    exprDF <- txPanBody %>% filter(bin == eBin & tissue == etissue)
+    expr_gr <- GRanges(exprDF$chr, IRanges(start=exprDF$txStart,end=exprDF$txEnd), strand = exprDF$strand)
+    seqlevelsStyle(expr_gr) <- "UCSC"
+    expr_list[[eBin]] <- expr_gr
+  }
+  names(expr_list) = c("Unexp", "0-1", "1-10", "10-100", "100+")
+  
+  enrich <- genomic_distributionCustom(VCFs[etissue == tissues], surveyed_list[etissue == tissues], expr_list, triRateTable, tissues[etissue == tissues])
+  exprEnrichDF <- bind_rows(exprEnrichDF, enrich)
+}
+
+exprEnrichAdjusted <- exprEnrichDF %>% 
+  group_by(region, tissueType) %>% 
+  summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+  mutate(by = tissueType) %>% 
+  mutate(prob = 0) %>% 
+  mutate(effect = "depletion") %>% 
+  mutate(pval = 1) %>% 
+  mutate(significant = "") %>% 
+  select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, prob, expected, effect, pval, significant)
+
+pExprEnrichAdjusted  <- plot_enrichment_depletion_prop(exprEnrichAdjusted)
+
+png(paste0(plotsPath, 'exprEnrichAdjusted.png'), height=5, width=8, units = "in", res = 300)
+pExprEnrichAdjusted 
+dev.off()
+
+pdf(paste0(plotsPath, 'exprEnrichAdjusted.pdf'), height=5, width=8)
+pExprEnrichAdjusted 
+dev.off()
+
+```
+
 ## PanBody Model
 ```{r PanBodyExpr, fig.height=5, fig.width=10}
 biomart <- read_tsv(paste0(path, "expression/txCoordsHG19.txt"), col_types = 'ccciiciic', skip = 1, col_names = c("gene", "geneVersion", "chr", "start", "end", "txType", "txStart", "txEnd", "strand")) %>% 
