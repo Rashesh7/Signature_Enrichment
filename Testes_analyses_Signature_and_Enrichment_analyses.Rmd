@@ -8,8 +8,13 @@ title: "Testes Enrichment Analyses"
 path <- "/Users/mn7/volumes/mn7_lustre/pipelineInput/"
 #Local output
 plotsPath <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enrichment/plots/"
+#plotsPath <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enrichment/plotsPan3/"
+#Farm headers
+#!/usr/bin/Rscript
+#Input files on the farm
+# path <- "/lustre/scratch119/casm/team294rr/mn7/pipelineInput/"
 #Farm output
-#plotsPath <- "/Users/mn7/volumes/mn7_lustre/pipelineInput/plots/testisIndivJun26_20/"
+# plotsPath <- "/lustre/scratch119/casm/team294rr/mn7/pipelineInput/plots/mainAug9_2020/"
 
 ```
 
@@ -17,7 +22,6 @@ plotsPath <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enri
 ```{r libraries}
 library(reshape2)
 library(Rsamtools)
-library(Repitools)
 library(plyr)
 library(sigfit)
 library(devtools)
@@ -29,10 +33,10 @@ library(ref_genome, character.only = TRUE)
 library(lme4)
 library(broom)
 library(tidyverse)
-library(dndscv)
 library(gtools)
 select <- dplyr::select
 rename <- dplyr::rename
+mutate <- dplyr::mutate
 summarize <- dplyr::summarize
 slice <- dplyr::slice
 options(scipen = 999)
@@ -164,6 +168,13 @@ load_VCF <- function(dataset) {
     panBodyVCF <- read_vcfs_as_granges(panBodyFiles, panBodySamples, ref_genome, check_alleles=T)
     return(panBodyVCF)
   }
+  #PanBody Tissue type 3
+  if(dataset == "PanBody3") {
+    panBodyFiles3 <- list.files(paste0(path, "variantVCFs/PanBody3/"), pattern = ".vcf.gz" , full.names = TRUE)
+    panBodySamples3 <- str_remove(list.files(paste0(path, "variantVCFs/PanBody3"), pattern = ".vcf.gz"), ".vcf.gz")
+    panBodyVCF3 <- read_vcfs_as_granges(panBodyFiles3, panBodySamples3, ref_genome, check_alleles=T)
+    return(panBodyVCF3)
+  }
   #Germline Tumours
   if(dataset == "Tolly_Tumour") {
     tumourIndivFiles <- list.files(paste0(path, "variantVCFs/Tolly_Tumour"), pattern = ".vcf.gz", full.names = TRUE)
@@ -294,7 +305,7 @@ load_callable <- function(dataset, preloaded = T) {
       return(botseqPOLsurveyedList)
     }
   }
-  #PanBody: Callable regions per sample
+  #PanBody: Callable regions union of samples per indiv per tissue
   if(dataset == "PanBody") {
     if(preloaded) {
       load(paste0(path,"surveyedRegions/PanBody/PanBodySurveyedList.RData"))
@@ -314,6 +325,28 @@ load_callable <- function(dataset, preloaded = T) {
       }
       save(PanBodySurveyedList, file=paste0(path,"surveyedRegions/PanBody/PanBodySurveyedList.RData"))
       return(PanBodySurveyedList)
+    }
+  }
+  #PanBody Tissue type 3 : Callable regions union of samples per indiv per tissue
+  if(dataset == "PanBody3") {
+    if(preloaded) {
+      load(paste0(path,"surveyedRegions/PanBody3/PanBody3SurveyedList.RData"))
+      return(PanBodySurveyedList)
+    } 
+    else {
+      PanBodySamples3 <- list.files(paste0(path, "surveyedRegions/PanBody3/"), pattern = ".sorted.merged.bed")
+      PanBodySurveyedList3 <- vector(mode = "list")
+      for(i in PanBodySamples3){
+        print(paste("Reading", i))
+        surveyed <- import(paste0(path, "surveyedRegions/PanBody3/",i))
+        surveyed <- keepStandardChromosomes(surveyed, pruning.mode = "coarse")
+        surveyed <- dropSeqlevels(surveyed, "chrM", pruning.mode="coarse")
+        ## Import the file using rtracklayer and use the UCSC naming standard
+        seqlevelsStyle(surveyed) <- "UCSC"
+        PanBodySurveyedList3[[i]] <- surveyed
+      }
+      save(PanBodySurveyedList3, file=paste0(path,"surveyedRegions/PanBody3/PanBody3SurveyedList.RData"))
+      return(PanBodySurveyedList3)
     }
   }
 }
@@ -496,8 +529,8 @@ testesVCF <- load_VCF("Testes")
 triosVCF <- load_VCF("Trios")
 
 VCFs <- c(colonVCF, popVarsVCF, testesVCF, triosVCF)
-tissues <- c(rep("Colon",length(colonVCF)), "PopVars", rep("Testes",length(testesVCF)), "Trio_DNMs")
-tissuesByVar <- c(rep("Colon",length(unlist(colonVCF))), rep("PopVars", length(unlist(popVarsVCF))), rep("Testes",length(unlist(testesVCF))), rep("Trio_DNMs", length(unlist(triosVCF))))
+tissues <- c(rep("colon",length(colonVCF)), "pop_vars", rep("testis",length(testesVCF)), "trio_DNMs")
+tissuesByVar <- c(rep("colon",length(unlist(colonVCF))), rep("pop_vars", length(unlist(popVarsVCF))), rep("testis",length(unlist(testesVCF))), rep("trio_DNMs", length(unlist(triosVCF))))
 
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
@@ -506,8 +539,8 @@ colonSurveyed <- load_callable("Colon")
 popVarsSurveyed <- load_callable("PopVars")
 testesSurveyed <- load_callable("Testes")
 triosSurveyed <- load_callable("PopVars")
-
 surveyed_list <- c(colonSurveyed, popVarsSurveyed, testesSurveyed, triosSurveyed)
+
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -520,8 +553,10 @@ colonVCF <- load_VCF("Colon")
 testesVCF <- load_VCF("Testes")
 triosVCF <- load_VCF("Trios")
 VCFs <- c(colonVCF, testesVCF, triosVCF)
-tissues <- c(rep("Colon",length(colonVCF)),rep("Testes",length(testesVCF)),"Trio_DNMs")
-tissuesByVar <- c(rep("Colon",length(unlist(colonVCF))),rep("Testes",length(unlist(testesVCF))), rep("Trio_DNMs", length(unlist(triosVCF))))
+
+tissues <- c(rep("colon",length(colonVCF)), rep("testis",length(testesVCF)), "trio_DNMs")
+tissuesByVar <- c(rep("colon",length(unlist(colonVCF))), rep("testis",length(unlist(testesVCF))), rep("trio_DNMs", length(unlist(triosVCF))))
+
 type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
@@ -530,8 +565,6 @@ testesSurveyed <- load_callable("Testes")
 triosSurveyed <- load_callable("PopVars")
 surveyed_list <- c(colonSurveyed, testesSurveyed, triosSurveyed)
 
-#Tri Rate Tables
-triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -556,7 +589,8 @@ surveyed_list <- c(testesSurveyed, polSurveyed)
 p_corrected <- (0.05/length(unique(tissues)))
 ```
 
-## d) Pan Body
+## d) Pan Body 
+### i) Tissue 1
 ```{r Pan Body}
 #Variants
 testesVCF <- load_VCF("Testes")
@@ -577,49 +611,117 @@ panBodySurveyed <- load_callable("PanBody")
 
 surveyed_list <- c(testesSurveyed, colonSurveyed, panBodySurveyed)
 
-#Tri Rate Tables
-triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
-p_triRateTable <- triRateTable %>% 
-  ggplot(aes(x = context, y = rate, color = tissue)) +
-  geom_point() + 
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90), legend.title = element_blank()) +
-  ylab("Mut Rate") +
-  xlab("") 
+#Corrected pvalue threshold by # of tissues
+p_corrected <- (0.05/length(unique(tissues)))
+```
+### ii) Tissue 3
+```{r Pan Body}
+#Variants
+testesVCF <- load_VCF("Testes")
+colonVCF <- load_VCF("Colon")
+panBody3VCF <- load_VCF("PanBody3")
 
-png(paste0(plotsPath, 'triRate.png'), height=4, width=8, units = "in", res = 300)
-p_triRateTable
-dev.off()
+VCFs <- c(testesVCF, colonVCF, panBody3VCF)
 
-pdf(paste0(plotsPath, 'triRate.pdf'), height=4, width=8)
-p_triRateTable
-dev.off()
+panBodyTissues3 <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBody3"), pattern = ".vcf.gz"), ".vcf.gz"), 9)
+
+tissues <- c(rep("testis_seminiferous_tubule",length(testesVCF)), rep("colon_crypt",length(colonVCF)), panBodyTissues3)
+tissuesByVar <- c(rep("testis_seminiferous_tubule",length(unlist(testesVCF))), rep("colon_crypt",length(unlist(colonVCF))), rep(panBodyTissues3, times = lengths(panBody3VCF)))
+type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
+#Surveyed Regions
+testesSurveyed <- load_callable("Testes")
+colonSurveyed <- load_callable("Colon")
+panBody3Surveyed <- load_callable("PanBody3")
+
+surveyed_list <- c(testesSurveyed, colonSurveyed, panBody3Surveyed)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
 ```
 
-### Pan Body Misc
-```{r PanBodyMisc}
-#Rename Files
-# panBodyCallable <- list.files(path = paste0(path, "surveyedRegions/PanBody"), pattern = ".callable.subtracted_ignored_regions.bed")
-# 
-# panBodyKey <- read_tsv(paste0(path, "PanBodyKey.txt"), comment = "#") %>%
-#   mutate(header = str_c(DonorID, TissueType1, sep = "_"))  %>%
-#   arrange(SampleID) %>%
-#   mutate(callableFile = panBodyCallable) %>%
-#   select(header, SampleID, callableFile)
-# 
-# file.rename(list.files(path = paste0(path, "surveyedRegions/PanBody"), pattern = ".callable.subtracted_ignored_regions.bed", full.names = T), paste0(path, "surveyedRegions/PanBody/", panBodyKey$header, ".", panBodyKey$SampleID, ".callable.bed"))
-# 
-# for (tissue in dir(path = paste0(path, "variantVCFs/PanBody"))){
-#   PIDs <- str_remove(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz"), ".vcf.gz")
-#   file.rename(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz", full.names = T), paste0(path, "variantVCFs/", PIDs, "_", tissue, ".vcf.gz"))
-# }
-# 
-# list.files(path = paste0(path, "variantVCFs/PanBody/"), pattern = ".vcf.gz")
-# list.files(path = paste0(path, "surveyedRegions/PanBody/"), pattern = ".bed")
+### iii) Rename Files
+```{r PanBodyMisc, eval=FALSE}
+#Key files
+panBodyCallable <- list.files(path = paste0(path, "surveyedRegions/PanBody3"), pattern = ".callable.subtracted_ignored_regions.bed")
 
+panBodyKey <- read_tsv(paste0(path, "Panbody_key_10082020.txt"), col_types = 'ccddcdccccc') %>%
+  filter(SampleID != "PD43850w_P53_STM_G9") %>% 
+  mutate(TissueType4 = str_replace(TissueType4, " ", "_")) %>% 
+  arrange(SampleID) %>%
+  mutate(callableFile = panBodyCallable) %>%
+  mutate(header1 = str_c(DonorID, TissueType1, sep = "_"))  %>%
+  mutate(header3 = str_c(DonorID, TissueType4, sep = "_"))  %>%
+  select(SampleID, callableFile, header1, header3)  
+
+#Rename Files Tissue type 1
+file.rename(list.files(path = paste0(path, "surveyedRegions/PanBody"), pattern = ".callable.subtracted_ignored_regions.bed", full.names = T), paste0(path, "surveyedRegions/PanBody/", panBodyKey$header1, ".", panBodyKey$SampleID, ".callable.bed"))
+
+for (tissue in dir(path = paste0(path, "variantVCFs/PanBody"))){
+  PIDs <- str_remove(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz"), ".vcf.gz")
+  file.rename(list.files(path = paste0(path, "variantVCFs/PanBody/", tissue), pattern = ".vcf.gz", full.names = T), paste0(path, "variantVCFs/", PIDs, "_", tissue, ".vcf.gz"))
+}
+
+list.files(path = paste0(path, "variantVCFs/PanBody/"), pattern = ".vcf.gz")
+list.files(path = paste0(path, "surveyedRegions/PanBody/"), pattern = ".bed")
+
+#Rename Files Tissue type 3
+
+file.rename(list.files(path = paste0(path, "surveyedRegions/PanBody3"), pattern = ".callable.subtracted_ignored_regions.bed", full.names = T), paste0(path, "surveyedRegions/PanBody3/", panBodyKey$header3, ".", panBodyKey$SampleID, ".callable.bed"))
+
+for (tissue in dir(path = paste0(path, "variantVCFs/PanBody3"))){
+  PIDs <- str_remove(list.files(path = paste0(path, "variantVCFs/PanBody3/", tissue), pattern = ".vcf.gz"), ".vcf.gz")
+  file.rename(list.files(path = paste0(path, "variantVCFs/PanBody3/", tissue), pattern = ".vcf.gz", full.names = T), paste0(path, "variantVCFs/", PIDs, "_", tissue, ".vcf.gz"))
+}
+
+list.files(path = paste0(path, "variantVCFs/PanBody3/"), pattern = ".vcf.gz")
+list.files(path = paste0(path, "surveyedRegions/PanBody3/"), pattern = ".bed")
+```
+
+### iv) Summary Table
+```{r SummaryTable, eval=FALSE}
+#Summary Table Tissue 1
+sumTableEx <- tibble(tissue = panBodyTissues,
+                   indiv = str_remove(names(panBodyVCF), "_.*"),
+                   n_muts = lengths(panBodyVCF))  %>% 
+  group_by(tissue) %>% 
+  summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  arrange(n_muts)
+
+callable <- vector()
+hg19length <- 3137161264
+for(i in 1:length(surveyed_list)) {
+  callable[i] <- sum(as.numeric(width(surveyed_list[[i]])))/hg19length
+}
+sumTable <- tibble(tissue = tissues,
+                   indiv = str_remove(names(VCFs), "_.*"),
+                   prop_surveyed = round(callable,2),
+                   n_muts = lengths(VCFs))  %>% 
+  group_by(tissue) %>% 
+  summarise(n_muts = sum(n_muts), prop_surveyed = mean(prop_surveyed), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  bind_rows(sumTableEx) %>% 
+  arrange(n_muts)
+
+write_tsv(sumTable, paste0(plotsPath, "panBodySummaryTable.txt"))
+
+#Summary Table Tissue 3
+sumTable3 <- tibble(tissue = panBodyTissues3,
+                   indiv = str_remove(names(panBody3VCF), "_.*"),
+                   n_muts = lengths(panBody3VCF))  %>% 
+  group_by(tissue) %>% 
+  summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  arrange(n_muts)
+callable <- vector()
+hg19length <- 3137161264
+for(i in 1:length(PanBodySurveyedList3)) {
+  callable[i] <- sum(as.numeric(width(PanBodySurveyedList3[[i]])))/hg19length
+}
+
+write_tsv(sumTable3, paste0(plotsPath, "panBody3SummaryTable.txt"))
+
+```
+
+### v) Oesophagus Check
+```{r OesophagusCheck, eval=FALSE}
 oesoPanBodyFiles <- list.files(paste0(path, "variantVCFs/PanBody/oesophagusTest"), pattern = ".vcf.gz" , full.names = TRUE)
 oesoPanBodySamples <- str_remove(list.files(paste0(path, "variantVCFs/PanBody/oesophagusTest"), pattern = ".vcf.gz"), "_complete_final_retained_4.goodSNPS_appended.vcf.gz")
 oesoPanBodyVCF <- read_vcfs_as_granges(oesoPanBodyFiles, oesoPanBodySamples, ref_genome, check_alleles=T)
@@ -635,7 +737,6 @@ exclPanBodyVCF <- read_vcfs_as_granges(exclPanBodyFiles, exclPanBodySamples, ref
 exclPanBodyTissues <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBody/excluded"), pattern = ".vcf.gz"), ".vcf.gz"), 9)
 
 #Summary Table
-
 sumTableEx <- tibble(tissue = panBodyTissues,
                    indiv = str_remove(names(panBodyVCF), "_.*"),
                    n_muts = lengths(panBodyVCF))  %>% 
@@ -681,6 +782,28 @@ surveyed_list <- c(testesSurveyed, tumourSurveyed)
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
+```
+
+# Tri rate tables
+```{r triRateTables}
+#Tri Rate Tables
+triRateTable <- loadTriRate(VCFs, surveyed_list, tissues)
+p_triRateTable <- triRateTable %>% 
+  ggplot(aes(x = context, y = rate, color = tissue)) +
+  geom_point() + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90), legend.title = element_blank()) +
+  ylab("Mut Rate") +
+  xlab("") 
+
+png(paste0(plotsPath, 'triRate.png'), height=4, width=8, units = "in", res = 300)
+p_triRateTable
+dev.off()
+
+pdf(paste0(plotsPath, 'triRate.pdf'), height=4, width=8)
+p_triRateTable
+dev.off()
+
 ```
 
 # Mutational Patterns Analysis
@@ -1004,27 +1127,6 @@ recombEnrich
 dev.off()
 ```
 
-## Genome Segments
-```{r}
-load(paste0(path, "mutPatternsRegions/segments_regions_list.RData"))
-
-# Find overlaps between mutations and genomic regions
-segments_dist = genomic_distribution(VCFs, surveyed_list, segments_regions_list)
-segments_depl = enrichment_depletion_test(segments_dist, by = tissues) %>% 
-  #Multiple test correction
-  mutate(significant = if_else(pval < p_corrected, "*", ""))
-segments_depl$region = factor(segments_depl$region, levels = c("TSS","PF","E","WE","CTCF","T","R"))
-pSegments <- plot_enrichment_depletion_prop(segments_depl)
-pSegments
-png(paste0(plotsPath, 'segments.png'), height=5, width=10, units = "in", res = 300)
-pSegments 
-dev.off()
-
-pdf(paste0(plotsPath, 'segments.pdf'), height=5, width=10)
-pSegments 
-dev.off()
-```
-
 # Expr/Meth Enrich
 ## PanBody Expr
 ```{r PanBodyExpr, fig.height=5, fig.width=20}
@@ -1046,7 +1148,7 @@ txPanBody <- gtexMedian %>%
   select(gene, chr, txStart, txEnd, strand, length,
          adrenal_gland = "Adrenal Gland", bronchus_epithelium = "Lung", colon = "Colon - Sigmoid", liver = "Liver", oesophagus = "Esophagus - Mucosa",
          pancreas = "Pancreas", prostate = "Prostate", skin = "Skin - Sun Exposed (Lower leg)", #skinNoSun = "Skin - Not Sun Exposed (Suprapubic)", 
-         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid") %>% 
+         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid", trio_DNMs = "Testis", pop_vars = "Testis") %>% 
   #Pivot for one row per gene tissue pair
   pivot_longer(cols = -c(gene, chr, txStart, txEnd, strand, length), names_to = "tissue", values_to = "tpm") %>% 
   #Bin expression on tpm
@@ -1058,7 +1160,8 @@ txPanBody <- gtexMedian %>%
   mutate(bin = fct_relevel(bin, c("Unexp", "0-1", "1-10", "10-100", "100+")))
 
 tissuesWithExprData <- c("testis","colon","adrenal_gland","bronchus_epithelium","liver","oesophagus","prostate","skin","small_bowel","thyroid","pancreas","stomach")
-
+#tissuesWithExprData <- c("testis","colon","trio_DNMs", "pop_vars")
+tissuesWithExprData <- c("adrenal_gland","liver")
 #Create granges lists for the 5 expression bins per tissue+
 exprEnrichDF <- tibble()
 for(etissue in tissuesWithExprData) {
@@ -1070,17 +1173,17 @@ for(etissue in tissuesWithExprData) {
     expr_list[[eBin]] <- expr_gr
   }
   names(expr_list) = c("Unexp", "0-1", "1-10", "10-100", "100+")
-  tissuesOES <- rep("oesophagus", 30)
-  enrich <- genomic_distributionCustom(VCFs, surveyed_list, expr_list, triRateTable, tissuesOES)
-  #enrich <- genomic_distributionCustom(VCFs[etissue == tissues], surveyed_list[etissue == tissues], expr_list, triRateTable, tissues[etissue == tissues])
+  # tissuesOES <- rep("oesophagus", 30)
+  # enrich <- genomic_distributionCustom(VCFs, surveyed_list, expr_list, triRateTable, tissuesOES)
+  enrich <- genomic_distributionCustom(VCFs[etissue == tissues], surveyed_list[etissue == tissues], expr_list, triRateTable, tissues[etissue == tissues])
 
   exprEnrichDF <- bind_rows(exprEnrichDF, enrich)
 }
 
 exprEnrichAdjusted <- exprEnrichDF %>% 
-  # group_by(region, tissueType) %>%
-  # summarise(across(where(is.numeric),sum), .groups = "drop") %>%
-  mutate(by = sample) %>% 
+  group_by(region, tissueType) %>%
+  summarise(across(where(is.numeric),sum), .groups = "drop") %>%
+  mutate(by = tissue) %>% 
   mutate(prob = 0) %>% 
   mutate(effect = "depletion") %>% 
   mutate(pval = 1) %>% 
