@@ -444,7 +444,7 @@ genomic_distributionCustom <- function (vcf_list, surveyed_list, region_list, tr
     for (j in 1:length(region_list)) {
         for (i in 1:length(vcf_list)) {
             res = intersect_with_regionCustom(vcf_list[[i]], surveyed_list[[i]], 
-                region_list[[j]], regionName = names(region_list)[j], triRateTable, tissueType = tissues[i], sample = names(vcf_list[i]), addSigs, sigAssign)
+                region_list[[j]], regionName = names(region_list)[j], triRateTable, tissueType = tissues[i], sample = names(vcf_list[i]), addSigs, sigsAssign)
             df = rbind(df, res)
         }
     }
@@ -793,9 +793,6 @@ if(useSigs) {
     }
   return(df_joined)
   }
-  
-  strandPath <- "/Users/mn7/volumes/mn7_lustre/sigAssign/"
-  sigAssignPlots <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/Signature_Enrichment/sigAssignPlots/"
   #Variants
   testesDF <- get_variant_contexts(testesVCF, ref_genome)
   colonDF <- get_variant_contexts(colonVCF, ref_genome)
@@ -809,7 +806,7 @@ if(useSigs) {
     select(sample = SampleID, header1)  
   
   #Sample sig assigment
-  mean_assignment <- read_tsv(paste0(strandPath, "Decompose_Solution_Activities.txt"), col_types = cols(Samples = "c", .default = "d")) %>% 
+  mean_assignment0 <- read_tsv(paste0(path, "sigAssign/Decompose_Solution_Activities.txt"), col_types = cols(Samples = "c", .default = "d")) %>% 
     rename(sample = Samples) %>% 
     filter(sample != "PD43850w_P53_STM_G9") %>% 
     #Individual key for panBody
@@ -1023,7 +1020,7 @@ print(meth_regions_files)
 # names(meth_regions_list) = str_remove(list.files(paste0(path, "methylation/mean_cov3"), pattern = "_cov3_19.bed", full.names = F), "_cov3_19.bed")
 # save(meth_regions_list, file=paste0(path,"methylation/mean_cov3/meth_regions_list.RData"))
 load(paste0(path,"methylation/mean_cov3/meth_regions_list.RData"))
-
+methData <- c("colon")
 methData <- c("colon","testis","trio_DNMs", "pop_vars")
 tissuesWithMethData <- methData[methData %in% tissues]
 
@@ -1071,6 +1068,27 @@ dev.off()
 
 ```
 
+## Coverage Meth
+```{r coverageMeth, fig.height=5, fig.width=10}
+#Read in mean coverage from sequencing at cpg sites
+colonMeanCov <- import(paste0(path, "methylation/coverage/colon/colonCpGmeanCoverage.bed"))
+colonMeanCov@elementMetadata@listData$score <- as.numeric(colonMeanCov@elementMetadata@listData$name)
+seqlevelsStyle(colonMeanCov) <- "UCSC"
+
+colonMeanCov_surveyed = intersect(colonMeanCov, surveyed_list[[13]], ignore.strand = TRUE)
+
+
+coverageDF <- tibble(methLevel = names(meth_list), meanCov = NA)
+for(i in 1:length(meth_list)) {
+  overlap <- findOverlaps(colonMeanCov_surveyed, meth_list[[i]])
+  overlapSub <- colonMeanCov[unique(overlap@from)]
+  coverageDF$meanCov[i] <- mean(overlapSub@elementMetadata@listData$score)
+  
+}
+
+overlapSub@ranges@start[1:10]
+
+```
 # Summary Figure
 ## Point
 ```{r SummaryFigure, fig.height=8, fig.width=10}
@@ -1098,7 +1116,7 @@ pRep <- repTimingCIs %>% mutate(region = str_replace(region, "Intermediate", "In
         panel.spacing = unit(0, "lines"), #remove space between facets
         panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 pRep
-pExonic <- codingCIs %>% filter(region != "coding") %>% 
+pExonic <- exonicCIs %>% filter(region != "coding") %>% 
   mutate(by = fct_relevel(by, tissueOrder)) %>% 
   mutate(region = fct_relevel(region, c("intronic", "exonic"))) %>% 
   ggplot(aes(x= region, y = observed/expected, color = region)) +
@@ -1211,7 +1229,7 @@ if(useSigs){
           panel.spacing = unit(0, "lines"), #remove space between facets
           panel.grid.major = element_blank(), panel.grid.minor = element_blank())
   pRep
-  pExonic <- codingAdjusted %>%
+  pExonic <- exonicAdjusted %>%
     mutate(by = tissueType) %>% 
     pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
     mutate(by = fct_relevel(by, tissueOrder)) %>% 
@@ -1302,7 +1320,7 @@ if(useSigs){
           panel.spacing = unit(0, "lines"), #remove space between facets
           panel.grid.major = element_blank(), panel.grid.minor = element_blank())
   pRep
-  pExonic <- codingAdjusted %>%
+  pExonic <- exonicAdjusted %>%
     mutate(by = tissueType) %>% 
     mutate(across(matches("SBS"), ~ .x/observed)) %>% 
     pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
@@ -1426,9 +1444,9 @@ cut -f1,2 /lustre/scratch119/casm/team294rr/mn7/pipelineInput/methylation/covera
 
 gunzip PD*.regions.bed.gz
 module load bedtools
-cat PD*.regions.bed | sort -k1,1 -k2,2n | bedtools merge -d -1 -c 4 -o mean > testisCpGmeanCoverage.bed
+cat PD*.regions.bed | sort -k1,1 -k2,2n | bedtools merge -d -1 -c 5 -o mean > testisCpGmeanCoverage.bed
 
-bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./mergeCoverageTestis.sh
+bsub -o out.%J -e err.%J -q long -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./mergeCoverageTestis.sh
 
 #!/bin/bash
 #Colon
@@ -1442,7 +1460,7 @@ cut -f1,2 /lustre/scratch119/casm/team294rr/mn7/pipelineInput/methylation/covera
 
 gunzip PD*.regions.bed.gz
 module load bedtools
-cat PD*.regions.bed | sort -k1,1 -k2,2n | bedtools merge -d -1 -c 4 -o mean > colonCpGmeanCoverage.bed
+cat PD*.regions.bed | sort -k1,1 -k2,2n | bedtools merge -d -1 -c 5 -o mean > colonCpGmeanCoverage.bed
 
 bsub -o out.%J -e err.%J -q normal -n 4 -R 'select[mem>=4000] rusage[mem=4000]' -M4000 ./mergeCoverageColon.sh
 
