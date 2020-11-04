@@ -32,13 +32,11 @@ library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 ref_genome <- "BSgenome.Hsapiens.UCSC.hg19"
 library(ref_genome, character.only = TRUE)
 library(lme4)
-library(broom)
 library(tidyverse)
 library(gtools)
 select <- dplyr::select
 rename <- dplyr::rename
 mutate <- dplyr::mutate
-summarize <- dplyr::summarize
 slice <- dplyr::slice
 options(scipen = 999)
 
@@ -53,7 +51,7 @@ Functions to generate variants and callable regions for each dataset
 load_VCF <- function(dataset, surveyed = NA) {
   #Pop variants from gnomAD
   if(dataset == "PopVars") {
-    gnomadVCF <- read_vcfs_as_granges(paste0(path,"variantVCFs/PopVars/gnomad.genomes.r2.1.1.snps.filtered.vcf"), "gnomad", ref_genome, check_alleles=T)
+    gnomadVCF <- read_vcfs_as_granges(paste0(path,"variantVCFs/PopVars/gnomad.genomes.r2.1.1.snps.filtered.singletons.vcf"), "gnomad", ref_genome, check_alleles=T)
     return(gnomadVCF)
   }
   #Testes by individual
@@ -310,6 +308,28 @@ load_callable <- function(dataset, preloaded = T) {
       return(PanBodySurveyedList3)
     }
   }
+  #Tolly_tumour
+  if(dataset == "Tolly_Tumour") {
+    if(preloaded) {
+      load(paste0(path,"surveyedRegions/Tolly_Tumour/Tolly_TumourSurveyedList.RData"))
+      return(Tolly_TumourSurveyedList)
+    } 
+    else {
+      Tolly_TumourSamples <- list.files(paste0(path, "surveyedRegions/Tolly_Tumour/"), pattern = ".sorted.merged.bed")
+      Tolly_TumourSurveyedList <- vector(mode = "list")
+      for(i in Tolly_TumourSamples){
+        print(paste("Reading", i))
+        surveyed <- import(paste0(path, "surveyedRegions/Tolly_Tumour/",i))
+        surveyed <- keepStandardChromosomes(surveyed, pruning.mode = "coarse")
+        surveyed <- dropSeqlevels(surveyed, "chrM", pruning.mode="coarse")
+        ## Import the file using rtracklayer and use the UCSC naming standard
+        seqlevelsStyle(surveyed) <- "UCSC"
+        Tolly_TumourSurveyedList[[i]] <- surveyed
+      }
+      save(Tolly_TumourSurveyedList, file=paste0(path,"surveyedRegions/Tolly_Tumour/Tolly_TumourSurveyedList.RData"))
+      return(Tolly_TumourSurveyedList)
+    }
+  }
 }
 ```
 
@@ -329,7 +349,7 @@ loadTriRate <- function(vcf_list, surveyed_list, tissues) {
       mutate(totMuts = sum(c_across(where(is.numeric)))) %>% 
       mutate(context = paste0(str_sub(mutType,1,1),str_sub(mutType,3,3),str_sub(mutType,7,7))) %>% 
       group_by(context) %>% 
-      summarise(count = sum(totMuts), .groups = "drop")
+      dplyr::summarise(count = sum(totMuts), .groups = "drop")
       
     #Get mean opportunities for tissue
     surveyedT <- surveyed_list[tissues == tissue]
@@ -339,13 +359,13 @@ loadTriRate <- function(vcf_list, surveyed_list, tissues) {
       tri_freqs <- trinucleotideFrequency(sequences)
       complement = vector()
       complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";	
-      tri_freqs_summary <- as.tibble(tri_freqs) %>% 
-        summarise(across(.cols = everything(), sum)) %>% 
+      tri_freqs_summary <- as_tibble(tri_freqs) %>% 
+        dplyr::summarise(across(.cols = everything(), sum)) %>% 
         pivot_longer(cols = everything(), names_to = "context0", values_to = "count") %>% 
         #Convert to pyr reference
         mutate(context = ifelse(str_sub(context0,2,2) %in% c("C", "T"), context0, paste0(complement[str_sub(context0, 3,3)], complement[str_sub(context0, 2,2)], complement[str_sub(context0, 1,1)]))) %>% 
         group_by(context) %>% 
-        summarise(count = sum(count), .groups = "drop")
+        dplyr::summarise(count = sum(count), .groups = "drop")
       colnames(tri_freqs_summary) <- c("context", paste0("opps_", names(surveyedT[i])))
       muts <- muts %>% 
         left_join(tri_freqs_summary, by = "context")
@@ -393,7 +413,7 @@ intersect_with_regionCustom = function(vcf, surveyed, region, regionName, triRat
     surveyed_region@ranges@start <- as.integer(surveyed_region@ranges@start - 1)
     surveyed_region@ranges@width <- as.integer(surveyed_region@ranges@width + 2)
     #Count trinuc freq
-    cat("Extracting sequences...\n")
+    cat(paste0("Extracting sequences of ", tissueType, " in ", regionName, "...\n"))
   	sequences = getSeq(BSgenome.Hsapiens.UCSC.hg19, surveyed_region)
     cat("Calculating trinucleotide frequencies...\n")
     tri_freqs <- trinucleotideFrequency(sequences)
@@ -401,12 +421,12 @@ intersect_with_regionCustom = function(vcf, surveyed, region, regionName, triRat
     complement = vector()
     complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A";	
     tri_freqs_summary <- as.tibble(tri_freqs) %>% 
-      summarise(across(.cols = everything(), sum)) %>% 
+      dplyr::summarise(across(.cols = everything(), sum)) %>% 
       pivot_longer(cols = everything(), names_to = "context0", values_to = "count") %>% 
       #Convert to pyr reference
       mutate(context = ifelse(str_sub(context0,2,2) %in% c("C", "T"), context0, paste0(complement[str_sub(context0, 3,3)], complement[str_sub(context0, 2,2)], complement[str_sub(context0, 1,1)]))) %>% 
       group_by(context) %>% 
-      summarise(count = sum(count), .groups = "drop") %>% 
+      dplyr::summarise(count = sum(count), .groups = "drop") %>% 
       left_join((triRateTable %>% filter(tissue == tissueType)), by = "context") %>% 
       mutate(expected = count * (rate * n_muts))
     
@@ -422,13 +442,21 @@ intersect_with_regionCustom = function(vcf, surveyed, region, regionName, triRat
                     sample)
     
     #Add signature breakdown if table provided
-    if(addSigs) {
+    if(addSigs & observed > 0) {
       mutsInRegion <- list(vcf[muts_in_region])
       names(mutsInRegion) <- sample
       sigSums <- get_variant_contexts(mutsInRegion, ref_genome) %>% 
         left_join(sigsAssign, by = c("chr", "pos", "REF", "sub", "trinuc", "sample")) %>% 
-        summarise(across(matches("SBS"), sum))
+        dplyr::summarise(across(matches("SBS"), sum))
       res <- bind_cols(res, sigSums)
+    }
+    #In case no variants observed
+    if(addSigs & observed == 0) {
+      sigCols <- sigsAssign %>% 
+        select(matches("SBS")) %>% 
+        slice(1) 
+      sigCols[sigCols > 0] = 0
+      res <- bind_cols(res, sigCols)
     }
     return(res)
 }
@@ -461,9 +489,9 @@ calculateCIs <- function(expectedDF, vcf_list, regions, tissueTypes, n_sim) {
     mutate(value = NA)
     
   for(tissue in unique(tissueTypes)) {
+
     #Create merged VCF for tissue
     vcf <- unlist(vcf_list[tissueTypes == tissue])
-    
     #Region by tissue
     for(region in region_names) {
       cat(paste0("Calculating CIs for ", tissue, " in ", region, "...\n"))
@@ -471,13 +499,20 @@ calculateCIs <- function(expectedDF, vcf_list, regions, tissueTypes, n_sim) {
       
       observed <- length(unique(as.data.frame(as.matrix(findOverlaps(vcf, overlapRegion)))$queryHits))
       
-      observations <- replicate(n_sim, length(unique(as.data.frame(as.matrix(findOverlaps(vcf[sort(sample(length(vcf), size = length(vcf),replace = T))], overlapRegion)))$queryHits)))
-      cis <- quantile(observations, probs = c(0.025, 0.975))
-      
-      ciDF$lowerCI[ciDF$by == tissue & ciDF$region == region] <- cis[1]
-      ciDF$upperCI[ciDF$by == tissue & ciDF$region == region] <- cis[2]
-      ciDF$value[ciDF$by == tissue & ciDF$region == region] <- observed
-      
+      #Skip CIs for pop_vars as its too big to calculate effieciently
+      if(tissue == "pop_vars") {
+        ciDF$lowerCI[ciDF$by == tissue & ciDF$region == region] <- observed
+        ciDF$upperCI[ciDF$by == tissue & ciDF$region == region] <- observed
+        ciDF$value[ciDF$by == tissue & ciDF$region == region] <- observed
+      }
+      else {
+        observations <- replicate(n_sim, length(unique(as.data.frame(as.matrix(findOverlaps(vcf[sort(sample(length(vcf), size = length(vcf),replace = T))], overlapRegion)))$queryHits)))
+        cis <- quantile(observations, probs = c(0.025, 0.975))
+        
+        ciDF$lowerCI[ciDF$by == tissue & ciDF$region == region] <- cis[1]
+        ciDF$upperCI[ciDF$by == tissue & ciDF$region == region] <- cis[2]
+        ciDF$value[ciDF$by == tissue & ciDF$region == region] <- observed
+      }
     }
   }
   return(ciDF)
@@ -500,9 +535,6 @@ triosVCF <- load_VCF("Trios")
 
 VCFs <- c(colonVCF, popVarsVCF, testesVCF, triosVCF)
 tissues <- c(rep("colon",length(colonVCF)), "pop_vars", rep("testis",length(testesVCF)), "trio_DNMs")
-tissuesByVar <- c(rep("colon",length(unlist(colonVCF))), rep("pop_vars", length(unlist(popVarsVCF))), rep("testis",length(unlist(testesVCF))), rep("trio_DNMs", length(unlist(triosVCF))))
-
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
@@ -531,9 +563,6 @@ triosVCF <- load_VCF("Trios")
 VCFs <- c(colonVCF, testesVCF, triosVCF)
 
 tissues <- c(rep("colon",length(colonVCF)), rep("testis",length(testesVCF)), "trio_DNMs")
-tissuesByVar <- c(rep("colon",length(unlist(colonVCF))), rep("testis",length(unlist(testesVCF))), rep("trio_DNMs", length(unlist(triosVCF))))
-
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 colonSurveyed <- load_callable("Colon")
@@ -560,7 +589,6 @@ polVCF <- load_VCF("POL")
 
 VCFs <- c(testesVCF, polVCF)
 tissues <- c(rep("Testes",length(testesVCF)), "POLE_Blood", "POLD1_Blood", "POLE_Sperm", "POLD1_Sperm")
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 testesSurveyed <- load_callable("Testes")
@@ -590,8 +618,6 @@ VCFs <- c(testesVCF, colonVCF, panBodyVCF)
 panBodyTissues <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBody"), pattern = ".vcf.gz"), ".vcf.gz"), 9)
 
 tissues <- c(rep("testis",length(testesVCF)), rep("colon",length(colonVCF)), panBodyTissues)
-tissuesByVar <- c(rep("testis",length(unlist(testesVCF))), rep("colon",length(unlist(colonVCF))), rep(panBodyTissues, times = lengths(panBodyVCF)))
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
 
 #Surveyed Regions
 testesSurveyed <- load_callable("Testes")
@@ -621,8 +647,7 @@ VCFs <- c(testesVCF, colonVCF, panBody3VCF)
 panBodyTissues3 <- str_sub(str_remove(list.files(paste0(path, "variantVCFs/PanBody3"), pattern = ".vcf.gz"), ".vcf.gz"), 9)
 
 tissues <- c(rep("testis_seminiferous_tubule",length(testesVCF)), rep("colon_crypt",length(colonVCF)), panBodyTissues3)
-tissuesByVar <- c(rep("testis_seminiferous_tubule", length(unlist(testesVCF))), rep("colon_crypt",length(unlist(colonVCF))), rep(panBodyTissues3, times = lengths(panBody3VCF)))
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
+
 #Surveyed Regions
 testesSurveyed <- load_callable("Testes")
 colonSurveyed <- load_callable("Colon")
@@ -686,7 +711,7 @@ sumTableEx <- tibble(tissue = panBodyTissues,
                    indiv = str_remove(names(panBodyVCF), "_.*"),
                    n_muts = lengths(panBodyVCF))  %>% 
   group_by(tissue) %>% 
-  summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  dplyr::summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
   arrange(n_muts)
 
 callable <- vector()
@@ -699,7 +724,7 @@ sumTable <- tibble(tissue = tissues,
                    prop_surveyed = round(callable,2),
                    n_muts = lengths(VCFs))  %>% 
   group_by(tissue) %>% 
-  summarise(n_muts = sum(n_muts), prop_surveyed = mean(prop_surveyed), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  dplyr::summarise(n_muts = sum(n_muts), prop_surveyed = mean(prop_surveyed), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
   bind_rows(sumTableEx) %>% 
   arrange(n_muts)
 
@@ -710,7 +735,7 @@ sumTable3 <- tibble(tissue = panBodyTissues3,
                    indiv = str_remove(names(panBody3VCF), "_.*"),
                    n_muts = lengths(panBody3VCF))  %>% 
   group_by(tissue) %>% 
-  summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
+  dplyr::summarise(n_muts = sum(n_muts), indivs = paste(indiv, collapse = ","), .groups = "drop") %>% 
   arrange(n_muts)
 callable <- vector()
 hg19length <- 3137161264
@@ -725,20 +750,55 @@ write_tsv(sumTable3, paste0(plotsPath, "panBody3SummaryTable.txt"))
 ## e) Tolly Tumour 
 ```{r TumourDatasets, eval = FALSE}
 #Variants
+colonVCF <- load_VCF("Colon")
 testesVCF <- load_VCF("Testes")
 tumourVCF <- load_VCF("Tolly_Tumour")
 
-VCFs <- c(testesVCF, tumourVCF)
-tissues <- c(rep("Testes",length(testesVCF)), "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Mixed","Tumour_Mixed","Tumour_PrePub", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Ovarian", "Tumour_Mixed", "Tumour_Seminoma", "Tumour_Seminoma", "Tumour_Mixed", "Tumour_Mixed")
-type_occurrences <- mut_type_occurrences(VCFs, ref_genome)
+VCFs <- c(colonVCF,testesVCF, tumourVCF)
+
+tumourMeta <- read_tsv(paste0(path, "variantVCFs/Tolly_Tumour/GCT_final_manifest.txt"), col_types = cols(.default = "c"))
+%>% 
+  select(Sample, sex, Diagnosis) %>% 
+  mutate(Sample = str_sub(Sample, 1, 7)) %>% 
+  distinct(Sample, .keep_all = T) %>% 
+  filter(Sample != "PD46967")
+
+tissues <- c(rep("colon",length(colonVCF)), rep("testis",length(testesVCF)),"PostPubT","PostPubT","PostPubT","PostPubT","PrePubT","PostPubO","PostPubO","PostPubO","PostPubT","PostPubT","PostPubT","PostPubT","PostPubT")
 
 #Surveyed Regions
+colonSurveyed <- load_callable("Colon")
 testesSurveyed <- load_callable("Testes")
-tumourSurveyed <- vector(mode = "list")
-for (i in 1:length(tumourVCF)) {
-  tumourSurveyed[[i]] <- testesSurveyed[[1]]
-}
-surveyed_list <- c(testesSurveyed, tumourSurveyed)
+tumourSurveyed <- load_callable("Tolly_Tumour")
+surveyed_list <- c(colonSurveyed, testesSurveyed, tumourSurveyed)
+
+plotsPath <- "/Users/mn7/Google Drive File Stream/My Drive/Testes/GermCellTumours/plots/"
+
+#Corrected pvalue threshold by # of tissues
+p_corrected <- (0.05/length(unique(tissues)))
+
+#Number of simulations for CIs
+n_sims = 100
+
+#Should calculate sigs
+useSigs = F
+```
+
+## f) Benign Testis
+```{r mainNoPop, eval = FALSE}
+#Variants
+colonVCF <- load_VCF("Colon")
+testesVCF <- load_VCF("Testes")
+benignVCF <- load_VCF("TestesBenign")
+VCFs <- c(colonVCF, testesVCF, benignVCF)
+
+tissues <- c(rep("colon",length(colonVCF)), rep("testis",length(testesVCF)), rep("benignTestis",length(benignVCF)))
+
+#Surveyed Regions
+colonSurveyed <- load_callable("Colon")
+testesSurveyed <- load_callable("Testes")
+benignSurveyed <- load_callable("TestesBenign")
+surveyed_list <- c(colonSurveyed, testesSurveyed, benignSurveyed)
+
 
 #Corrected pvalue threshold by # of tissues
 p_corrected <- (0.05/length(unique(tissues)))
@@ -820,7 +880,7 @@ if(useSigs) {
     mutate(header1 = str_replace(header1, "PD42568b", "PD40746b_PD42568b")) %>% 
     #Summarise to indiv/tissue
     group_by(header1) %>% 
-    summarize(across(matches("SBS"), sum), .groups = "drop") %>% 
+    dplyr::summarise(across(matches("SBS"), sum), .groups = "drop") %>% 
     rename(sample = header1)
   
   #Convert to fractions
@@ -846,7 +906,7 @@ if(useSigs) {
     mutate(prob = assignment * freq)
   
   probabilityDF <- probabilityDF0 %>% 
-    left_join(probabilityDF0 %>% group_by(chr, pos, REF, sub, trinuc, sample) %>% summarize(probSum = sum(prob), .groups = "drop"), by = c("chr", "pos", "REF", "sub", "trinuc", "sample")) %>% 
+    left_join(probabilityDF0 %>% group_by(chr, pos, REF, sub, trinuc, sample) %>% dplyr::summarise(probSum = sum(prob), .groups = "drop"), by = c("chr", "pos", "REF", "sub", "trinuc", "sample")) %>% 
     mutate(probNorm = prob/probSum) %>% 
     select(chr, pos, REF, sub, trinuc, sample, sig, probNorm) %>% 
     pivot_wider(names_from = sig, values_from = probNorm)
@@ -899,7 +959,7 @@ write_tsv(mainRepDist, path = paste0(plotsPath, 'repTimingIndiv.tsv'))
 
 repTimingAdjusted <- mainRepDist %>% 
   group_by(region, tissueType) %>% 
-  summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+  dplyr::summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
   mutate(by = tissueType) %>% 
   select(by, region, n_muts, surveyed_length, surveyed_region_length, observed, expected)
 write_tsv(repTimingAdjusted, path = paste0(plotsPath, 'repTimingSummarized.tsv'))
@@ -915,22 +975,33 @@ exons_hg19 <- exonicParts(TxDb.Hsapiens.UCSC.hg19.knownGene)
 introns_hg19 <- intronicParts(TxDb.Hsapiens.UCSC.hg19.knownGene)
 fiveUTRs_hg19 <- unlist(fiveUTRsByTranscript(TxDb.Hsapiens.UCSC.hg19.knownGene))
 threeUTRs_hg19 <- unlist(threeUTRsByTranscript(TxDb.Hsapiens.UCSC.hg19.knownGene))
+transcripts_hg19 <- transcripts(TxDb.Hsapiens.UCSC.hg19.knownGene)
 
 #Exlude UTR regions
-exons <- setdiff(setdiff(setdiff(exons_hg19, introns_hg19), fiveUTRs_hg19),threeUTRs_hg19)
-introns <- setdiff(setdiff(setdiff(introns_hg19, exons_hg19), fiveUTRs_hg19),threeUTRs_hg19)
+exons <- setdiff(setdiff(setdiff(exons_hg19, introns_hg19, ignore.strand = T), fiveUTRs_hg19, ignore.strand = T),threeUTRs_hg19, ignore.strand = T)
+introns <- setdiff(setdiff(setdiff(introns_hg19, exons_hg19, ignore.strand = T), fiveUTRs_hg19, ignore.strand = T),threeUTRs_hg19, ignore.strand = T)
+#Shrink genome coordinates on each end so that grabbing trinucleotide context at edges of chromosomes doesn't throw error
+genome <- GRanges(seqinfo(base::get(ref_genome)))
+genome@ranges@start <- as.integer(genome@ranges@start +1)
+genome@ranges@width <- as.integer(genome@ranges@width -2)
+intergenic <- GenomicRanges::setdiff(genome, transcripts_hg19, ignore.strand = T)
+
+sum(exons@ranges@width)
+sum(introns@ranges@width)
+sum(intergenic@ranges@width)
 
 exonicRegions_list=list()
 exonicRegions_list[[1]] <- exons
 exonicRegions_list[[2]] <- introns
-names(exonicRegions_list) <- c("exonic", "intronic")
+exonicRegions_list[[3]] <- intergenic
+names(exonicRegions_list) <- c("exonic", "intronic", "intergenic")
 
 exonicDist <- genomic_distributionCustom(VCFs, surveyed_list, exonicRegions_list, triRateTable, tissues, addSigs = useSigs, probabilityDF)
 write_tsv(exonicDist, path = paste0(plotsPath, 'exonicIndiv.tsv'))
 
 exonicAdjusted <- exonicDist %>% 
   group_by(region, tissueType) %>% 
-  summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+  dplyr::summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
   mutate(by = tissueType)
 write_tsv(exonicAdjusted, path = paste0(plotsPath, 'exonicSummarized.tsv'))
 
@@ -944,7 +1015,7 @@ write_tsv(exonicCIs, path = paste0(plotsPath, 'exonicCIs.tsv'))
 biomart <- read_tsv(paste0(path, "expression/txCoordsHG19.txt"), col_types = 'ccciiciic', skip = 1, col_names = c("gene", "geneVersion", "chr", "start", "end", "txType", "txStart", "txEnd", "strand")) %>% 
   mutate(strand = if_else(strand == "1", "+", "-")) %>% 
   group_by(gene, chr, strand) %>% 
-  summarize(start = min(start), end = max(end), txStart = min(txStart), txEnd = max(txEnd), txType = paste(txType, collapse = ";"), .groups = "drop")
+  dplyr::summarise(start = min(start), end = max(end), txStart = min(txStart), txEnd = max(txEnd), txType = paste(txType, collapse = ";"), .groups = "drop")
 
 gtexMedian <- read_tsv(paste0(path, "expression/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz"), skip = 2, col_types = cols(Name = "c", Description = "c", .default = "d")) %>%  
   mutate(gene = str_remove(Name, "\\..*")) %>% 
@@ -959,7 +1030,8 @@ txPanBody <- gtexMedian %>%
   select(gene, chr, txStart, txEnd, strand, length,
          adrenal_gland = "Adrenal Gland", bronchus_epithelium = "Lung", colon = "Colon - Sigmoid", liver = "Liver", oesophagus = "Esophagus - Mucosa",
          pancreas = "Pancreas", prostate = "Prostate", skin = "Skin - Sun Exposed (Lower leg)", #skinNoSun = "Skin - Not Sun Exposed (Suprapubic)", 
-         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid", trio_DNMs = "Testis", pop_vars = "Testis") %>% 
+         small_bowel = "Small Intestine - Terminal Ileum", stomach = "Stomach", testis = "Testis", thyroid = "Thyroid", trio_DNMs = "Testis", pop_vars = "Testis", 
+         benignTestis = "Testis", PostPubT = "Testis", PrePubT = "Testis", PostPubO = "Testis") %>% 
   #Pivot for one row per gene tissue pair
   pivot_longer(cols = -c(gene, chr, txStart, txEnd, strand, length), names_to = "tissue", values_to = "tpm") %>% 
   #Bin expression on tpm
@@ -969,7 +1041,8 @@ txPanBody <- gtexMedian %>%
   mutate(bin = if_else(tpm > 10, "10+", bin)) %>% 
   mutate(bin = fct_relevel(bin, c("Unexp", "0-1", "1-10", "10+")))
 
-exprData <- c("testis","colon","adrenal_gland","bronchus_epithelium","liver","oesophagus","prostate","skin","small_bowel","thyroid","pancreas","stomach", "trio_DNMs", "pop_vars")
+exprData <- c("testis","colon","adrenal_gland","bronchus_epithelium","liver","oesophagus","prostate","skin","small_bowel","thyroid","pancreas","stomach", "trio_DNMs", "pop_vars", 
+              "benignTestis", "PostPubT", "PrePubT", "PostPubO")
 tissuesWithExprData <- exprData[exprData %in% tissues]
 
 #Create granges lists for the 5 expression bins per tissue+
@@ -988,7 +1061,7 @@ for(etissue in tissuesWithExprData) {
   #Summarise across individuals
   exprEnrichAdjusted <- enrich %>% 
     group_by(region, tissueType) %>%
-    summarise(across(where(is.numeric),sum), .groups = "drop") %>%
+    dplyr::summarise(across(where(is.numeric),sum), .groups = "drop") %>%
     mutate(by = tissueType)
   
   #Add CIs
@@ -1002,7 +1075,7 @@ write_tsv(exprEnrichDF, path = paste0(plotsPath, 'exprSummarizedCIs.tsv'))
 ```
 
 ## PanBody Meth
-```{r PanBodyMeth, fig.height=5, fig.width=10}
+```{r PanBodyMeth, fig.height=5, fig.width=10, eval=FALSE}
 #Coverage 3
 # regions bed files
 meth_regions_files = list.files(paste0(path, "methylation/mean_cov3"), pattern = "_19.bed", full.names = T)
@@ -1020,10 +1093,10 @@ print(meth_regions_files)
 # names(meth_regions_list) = str_remove(list.files(paste0(path, "methylation/mean_cov3"), pattern = "_cov3_19.bed", full.names = F), "_cov3_19.bed")
 # save(meth_regions_list, file=paste0(path,"methylation/mean_cov3/meth_regions_list.RData"))
 load(paste0(path,"methylation/mean_cov3/meth_regions_list.RData"))
-methData <- c("colon")
+
 methData <- c("colon","testis","trio_DNMs", "pop_vars")
 tissuesWithMethData <- methData[methData %in% tissues]
-
+useSigsMeth = F
 methEnrichDF <- tibble()
 for(index in 1:length(tissuesWithMethData)) {
   mtissue <- tissuesWithMethData[index]
@@ -1039,7 +1112,7 @@ for(index in 1:length(tissuesWithMethData)) {
   meth_list[[7]] <- tissue_regions[methpercent == 100 ]
   names(meth_list) <- c("0.0-0.2","0.2-0.4","0.4-0.6","0.6-0.8","0.8-0.9","0.9-0.99", "1.0")
   
-  m_enrich <- genomic_distributionCustom(VCFs[mtissue == tissues], surveyed_list[mtissue == tissues], meth_list, triRateTable, tissues[mtissue == tissues])
+  m_enrich <- genomic_distributionCustom(VCFs[mtissue == tissues], surveyed_list[mtissue == tissues], meth_list, triRateTable, tissues[mtissue == tissues], addSigs = useSigsMeth, probabilityDF)
   methEnrichDF <- bind_rows(methEnrichDF, m_enrich)
 }
 write_tsv(methEnrichDF, path = paste0(plotsPath, 'methAdjustedSample.tsv'))
@@ -1063,13 +1136,47 @@ pMethObsExp
 dev.off()
 
 pdf(paste0(plotsPath, 'methEnrichAdjusted.pdf'), height=5, width=10)
-pMethObsExp 
+pMethObsExp
 dev.off()
 
+#Sigs
+methEnrichDFsigs <- read_tsv(paste0(plotsPath, 'methAdjustedSampleSigs.tsv'))
+sigOrder <- c("SBS1","SBS5","SBS18")
+pMethObsExpSigs <- methEnrichDFsigs %>% 
+  group_by(region, tissueType) %>% 
+  dplyr::summarise(across(where(is.numeric),sum), .groups = "drop")
+%>% 
+  select(tissueType, region, n_muts, surveyed_length, surveyed_region_length, observed, expected, SBS1, SBS5, SBS18) %>% 
+  pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
+    mutate(sig = fct_relevel(sig, sigOrder)) %>%
+    ggplot(aes(x= region, y = sigCount/expected, fill = sig, group =1)) +
+    geom_hline(yintercept = 1, colour = "grey") +
+    geom_bar( stat = "identity") +
+    facet_grid(~tissueType, switch = "x") +
+    ylab("obs/exp") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 8, angle = 45, vjust = 0.5),
+          # axis.text.x = element_blank(),
+          # axis.ticks.x = element_blank(),
+          axis.title.x = element_blank(),
+          strip.background = element_blank(), #remove background for facet labels
+          strip.text = element_text(angle = 45, vjust = 0.5),
+          strip.placement="outside",
+          panel.spacing = unit(0, "lines"), #remove space between facets
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+pMethObsExpSigs
+
+png(paste0(plotsPath, 'methEnrichAdjustedSigs.png'), height=5, width=10, units = "in", res = 300)
+pMethObsExpSigs
+dev.off()
+
+pdf(paste0(plotsPath, 'methEnrichAdjustedSigs.pdf'), height=5, width=10)
+pMethObsExpSigs
+dev.off()
 ```
 
 ## Coverage Meth
-```{r coverageMeth, fig.height=5, fig.width=10}
+```{r coverageMeth, fig.height=5, fig.width=10, eval=FALSE}
 #Read in mean coverage from sequencing at cpg sites
 colonMeanCov <- import(paste0(path, "methylation/coverage/colon/colonCpGmeanCoverage.bed"))
 colonMeanCov@elementMetadata@listData$score <- as.numeric(colonMeanCov@elementMetadata@listData$name)
@@ -1089,11 +1196,60 @@ for(i in 1:length(meth_list)) {
 overlapSub@ranges@start[1:10]
 
 ```
+
+## Binary Meth
+```{r binaryMeth, fig.height=5, fig.width=7, eval=FALSE}
+#Read in mean coverage from sequencing at cpg sites
+methData <- c("colon","testis","trio_DNMs", "pop_vars")
+tissuesWithMethData <- methData[methData %in% tissues]
+
+methEnrichDF <- tibble()
+for(index in 1:length(tissuesWithMethData)) {
+  mtissue <- tissuesWithMethData[index]
+  meth_list=list()
+  tissue_regions <- meth_regions_list[[index]]
+  methpercent <- tissue_regions@elementMetadata@listData$score
+  meth_list[[1]] <- tissue_regions[methpercent == 0]
+  meth_list[[2]] <- tissue_regions[methpercent > 0]
+  names(meth_list) <- c("0.0","Any")
+  
+  m_enrich <- genomic_distributionCustom(VCFs[mtissue == tissues], surveyed_list[mtissue == tissues], meth_list, triRateTable, tissues[mtissue == tissues])
+  methEnrichDF <- bind_rows(methEnrichDF, m_enrich)
+}
+write_tsv(methEnrichDF, path = paste0(plotsPath, 'methBi0AdjustedSample.tsv'))
+
+methEnrichDF0 <- read_tsv(paste0(plotsPath, 'methBi0AdjustedSample.tsv'))
+
+pMethObsExp <- methEnrichDF0 %>% 
+  mutate(obsExp = observed/expected) %>% 
+  ggplot(aes(x = region, y = obsExp, color = tissueType)) +
+    geom_hline(yintercept = 1, colour = "grey") +
+    geom_boxplot(position = position_dodge(0.9)) +
+    geom_point(position = position_dodge(0.9)) +
+    scale_color_manual(values = c("#E69F00", "#2c7fb8")) +
+    theme_bw() +
+    theme(axis.title.x = element_blank(), legend.title = element_blank()) +
+    ylab("obs/exp")
+pMethObsExp 
+
+png(paste0(plotsPath, 'methBi0EnrichAdjusted.png'), height=5, width=10, units = "in", res = 300)
+pMethObsExp 
+dev.off()
+
+pdf(paste0(plotsPath, 'methBi0EnrichAdjusted.pdf'), height=5, width=10)
+pMethObsExp
+dev.off()
+
+```
+
 # Summary Figure
 ## Point
 ```{r SummaryFigure, fig.height=8, fig.width=10}
-
+tissueOrder <- c("testis","benignTestis","colon")
+tissueOrder <- c("colon","testis","PostPubT", "PrePubT", "PostPubO")
 tissueOrder <- c("testis","adrenal_gland","appendix","bile_ducts","bronchus_epithelium","colon","liver","oesophagus","pancreas","prostate","skin","small_bowel","stomach","thyroid")
+
+
 pRep <- repTimingCIs %>% mutate(region = str_replace(region, "Intermediate", "Int")) %>% 
   mutate(by = fct_relevel(by, tissueOrder)) %>% 
   ggplot(aes(x= region, y = observed/expected, color = region, group =1)) +
@@ -1118,10 +1274,10 @@ pRep <- repTimingCIs %>% mutate(region = str_replace(region, "Intermediate", "In
 pRep
 pExonic <- exonicCIs %>% filter(region != "coding") %>% 
   mutate(by = fct_relevel(by, tissueOrder)) %>% 
-  mutate(region = fct_relevel(region, c("intronic", "exonic"))) %>% 
+  mutate(region = fct_relevel(region, c("intergenic","intronic", "exonic"))) %>% 
   ggplot(aes(x= region, y = observed/expected, color = region)) +
   geom_hline(yintercept = 1, colour = "grey") +
-  scale_color_manual(values=c("darkgrey","black")) +
+  scale_color_manual(values=c("#cccccc","#969696","#525252")) +
   geom_errorbar(aes(ymin=lowerCI/expected, ymax=upperCI/expected), width=.1, color = "black") +
   geom_point(alpha = 0.75) +
   facet_grid(~by, switch = "x") +
@@ -1140,7 +1296,7 @@ pExonic
 
 pExpr <- exprEnrichDF %>% 
   #Add dummy lines to replace tissues with no expression data
-  bind_rows(tibble(by = rep(c("appendix", "bile_ducts"), each = 4), region = rep(c("Unexp", "0-1", "1-10", "10+"), 2), observed = 100, expected = 1)) %>% 
+  #bind_rows(tibble(by = rep(c("appendix", "bile_ducts"), each = 4), region = rep(c("Unexp", "0-1", "1-10", "10+"), 2), observed = 100, expected = 1)) %>% 
   mutate(region = fct_relevel(region, c("Unexp", "0-1", "1-10", "10+"))) %>% 
   mutate(by = fct_relevel(by, tissueOrder)) %>% 
   ggplot(aes(x= region, y = observed/expected, color = region, group = 1)) +
@@ -1206,7 +1362,7 @@ if(useSigs){
   
   pRep <- repTimingAdjusted %>% 
     group_by(region, tissueType) %>% 
-    summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+    dplyr::summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
     mutate(by = tissueType) %>% 
     mutate(region = str_replace(region, "Intermediate", "Int")) %>% 
     pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
@@ -1234,7 +1390,7 @@ if(useSigs){
     pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
     mutate(by = fct_relevel(by, tissueOrder)) %>% 
     mutate(sig = fct_relevel(sig, sigOrder)) %>%
-    mutate(region = fct_relevel(region, c("intronic", "exonic"))) %>% 
+    mutate(region = fct_relevel(region, c("intergenic","intronic", "exonic"))) %>% 
     ggplot(aes(x= region, y = sigCount/expected, fill = sig, group =1)) +
     geom_hline(yintercept = 1, colour = "grey") +
     geom_bar( stat = "identity") +
@@ -1296,7 +1452,7 @@ if(useSigs){
 if(useSigs){
   pRep <- repTimingAdjusted %>% 
     group_by(region, tissueType) %>% 
-    summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
+    dplyr::summarise(across(where(is.numeric),sum), .groups = "drop") %>% 
     mutate(across(matches("SBS"), ~ .x/observed)) %>% 
     mutate(by = tissueType) %>% 
     mutate(region = str_replace(region, "Intermediate", "Int")) %>% 
@@ -1326,7 +1482,7 @@ if(useSigs){
     pivot_longer(cols = matches("SBS"), names_to = "sig", values_to = "sigCount") %>% 
     mutate(by = fct_relevel(by, tissueOrder)) %>% 
     mutate(sig = fct_relevel(sig, sigOrder)) %>%
-    mutate(region = fct_relevel(region, c("intronic", "exonic"))) %>% 
+    mutate(region = fct_relevel(region, c("intergenic","intronic", "exonic"))) %>% 
     ggplot(aes(x= region, y = sigCount, fill = sig, group =1)) +
     geom_hline(yintercept = 1, colour = "grey") +
     geom_bar( stat = "identity") +
